@@ -1,0 +1,16 @@
+# TeleScrape: داده‌های حساس / sensitive data — never commit
+telescrape_data/
+*.session
+*.session-journal
+tg_api_credentials.json
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Test leftovers
+*.part
+*.tmp
