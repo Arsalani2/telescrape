@@ -1,0 +1,42 @@
+PROJECT_HANDOFF.txt — TeleScrape
+=================================
+(خلاصه‌ی تحویل پروژه به عامل/توسعه‌دهنده‌ی بعدی. جزئیات کامل: docs/Handoff_Project.md و بقیه‌ی فایل‌های docs/)
+
+آخرین به‌روزرسانی: 2026-10-24 14:00 UTC (ساعت کانتینر نشست؛ منطقه‌ی زمانی کاربر در دسترس نبود)
+مدل: Claude Sonnet 5.5 (claude-sonnet-5-5)
+ریپازیتوری: https://github.com/Arsalani2/telescrape  | شاخه‌ی پایه: main @ 6cf416c | شاخه‌ی مستندات: docs/ai-documentation
+
+۱) هدف پروژه
+- خروجی‌گیری (backup) از کانال/گروه/چت شخصی تلگرام با Telethon؛ متن + مدیا + metadata + zip. اجرا در Google Colab و ترمینال.
+- کل برنامه در یک فایل: telescrape_v3.py (1355 خط). نقطه‌ی ورود: main() -> app_main().
+- وابستگی: telethon>=1.40 (requirements.txt). مجوز MIT.
+
+۲) آنچه در این نشست انجام شد (واقعی)
+- کل کد و README خوانده شد.
+- هفت فایل مستندات در docs/ ساخته شد + این فایل. هیچ کد برنامه‌ای تغییر نکرد.
+- وضعیت commit/push: در docs/Update.md (Update #2) ثبت می‌شود.
+
+۳) آنچه کار کرد
+- python3 -I -c "import ast; ast.parse(open('telescrape_v3.py', encoding='utf-8').read())"  -> AST parse OK
+
+۴) آنچه انجام یا تأیید نشد
+- برنامه روی حساب واقعی تلگرام اجرا نشد (نیاز به API credentials). رفتار زمان اجرا فقط از کد استنباط شده.
+- تست خودکار/CI/linter در ریپازیتوری وجود ندارد.
+- Mermaid diagram‌ها render نشدند. تاریخچه‌ی کامل git بررسی نشد (کلون سطحی).
+- هیچ رویکرد شکست‌خورده‌ای در این نشست ثبت نشد (کار فقط مستندسازی بود).
+
+۵) مشاهدات/مشکلات شناخته‌شده (ایستا، بدون اجرا)
+- README فایل جانبی را ".info" می‌نویسد؛ کد "<path>.info.txt" می‌سازد.
+- سطح خنک‌سازی (speed) در settings.json ذخیره نمی‌شود.
+- _ensure("telethon") نسخه را اعمال نمی‌کند (>=1.40 فقط در requirements.txt).
+- metadata.txt و all_texts.md در هر اجرا از نو نوشته می‌شوند.
+
+۶) گام‌های بعدی پیشنهادی
+1. بازبینی و merge شاخه‌ی docs/ai-documentation به main.
+2. رفع ناهمخوانی README (.info) — تصمیم با کاربر.
+3. افزودن تست واحد برای توابع خالص (sanitize, safe_ext, norm_phone, classify, Throttle).
+4. بررسی پین نسخه‌ی Telethon.
+
+۷) قوانین
+- قبل از هر کار: docs/Instructions for Ai.md را بخوانید و ادعاهای این فایل را با کد واقعی تطبیق دهید.
+- Update.md فقط-افزودنی است. هیچ secret (API ID/Hash، شماره، session، خروجی چت) را در ریپازیتوری قرار ندهید.
