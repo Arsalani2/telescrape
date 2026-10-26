@@ -608,6 +608,27 @@ def make_zip(folder, zip_path):
     os.replace(tmp, zip_path)
 
 
+def folder_for(exports, name, pid):
+    """Reuse the existing folder for this chat id even if the title changed between runs
+    (P4-6): a rename must never trigger a full re-download. The old folder is renamed to
+    the current title; if renaming fails (e.g. locked), we keep using the old folder."""
+    suffix = f"_{pid}"
+    new = os.path.join(exports, f"{sanitize(name)}_{pid}")
+    try:
+        existing = sorted(d for d in os.listdir(exports)
+                          if d.endswith(suffix) and os.path.isdir(os.path.join(exports, d)))
+    except OSError:
+        existing = []
+    if existing:
+        old = os.path.join(exports, existing[0])
+        if old != new:
+            try:
+                os.rename(old, new)
+            except OSError:
+                return old
+    return new
+
+
 # ───────────────────────────── secrets / credentials ─────────────────────────────
 def get_secret(key):
     """Colab Secret first, then environment variable. Returns (value or None)."""
@@ -1003,7 +1024,7 @@ async def scrape(app, client, item, speed, total_hint=None):
     entity, pid, name = item["entity"], item["id"], item["name"]
     cfg = app.settings
     th = Throttle(speed)
-    folder = os.path.join(app.exports, f"{sanitize(name)}_{pid}")
+    folder = folder_for(app.exports, name, pid)   # same chat id -> same folder (P4-6)
     os.makedirs(folder, exist_ok=True)
     meta_path = os.path.join(folder, "metadata.txt")
     md_path = os.path.join(folder, "all_texts.md")
