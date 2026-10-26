@@ -1164,16 +1164,7 @@ async def scrape(app, client, item, speed, total_hint=None):
         interrupted, reason = True, short_err(e)
         err_lines.append(f"fatal: {reason}")
 
-    zip_path = None
-    if not interrupted and cfg.get("zip", True) and first_id is not None:
-        zip_path = os.path.join(app.zips, f"{sanitize(name)}_{pid}_{first_id}_{last_done}.zip")
-        status(t("zipping"))
-        try:
-            await asyncio.to_thread(make_zip, folder, zip_path)   # off the loop: never blocks
-        except Exception as e:
-            err_lines.append(f"zip: {e}")
-            zip_path = None
-
+    # LOG first (P3-5): so the zip of this run contains this run's LOG.txt
     try:
         with open(log_path, "a", encoding="utf-8") as lf:
             lf.write(f"Run start: {datetime.fromtimestamp(t0).strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -1190,6 +1181,25 @@ async def scrape(app, client, item, speed, total_hint=None):
             lf.write("-" * 80 + "\n")
     except Exception:
         pass
+
+    zip_path = None
+    if not interrupted and cfg.get("zip", True) and first_id is not None:
+        zip_path = os.path.join(app.zips, f"{sanitize(name)}_{pid}_{first_id}_{last_done}.zip")
+        status(t("zipping"))
+        try:
+            await asyncio.to_thread(make_zip, folder, zip_path)   # off the loop: never blocks
+            try:
+                with open(log_path, "a", encoding="utf-8") as lf:
+                    lf.write(f"Zip: {zip_path}\n")
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                with open(log_path, "a", encoding="utf-8") as lf:
+                    lf.write(f"Zip: failed: {short_err(e)}\n")
+            except Exception:
+                pass
+            zip_path = None
 
     res.update(stats)
     res.update(zip=zip_path, interrupted=interrupted, reason=reason, rests=th.rests)
