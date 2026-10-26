@@ -31,6 +31,10 @@ import textwrap, threading, collections, errno
 import concurrent.futures as cf
 from datetime import datetime
 
+if sys.version_info < (3, 9):        # asyncio.to_thread (used in scrape) needs 3.9+
+    print("⛔ Python 3.9+ required / پایتون ۳.۹ یا بالاتر لازم است")
+    raise SystemExit(1)
+
 
 def _ensure(pkg, mod=None, required=True):
     """Import a package, pip-installing it if missing. required=False -> best effort only."""
