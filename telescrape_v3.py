@@ -131,6 +131,7 @@ S = {
         "starting": "شروع شد. توقف: دکمه‌ی ■",
         "stopping": "⏹ در حال توقف...",
         "interrupted": "⏹ متوقف شد. (فایل‌های دانلودشده می‌مانند.)",
+        "zip_partial": "📦 زیپِ ناقصِ همین‌تا دانلود ساخته شد (برای ادامه دوباره اجرا کنید):\n{z}",
         "disk_low": "⛔ فضای دیسک کم است؛ متوقف شد.",
         "run_err": "⛔ خطا: {e}",
         "flood": "⏳ محدودیت تلگرام؛ {s} ثانیه صبر...",
@@ -206,6 +207,7 @@ S = {
         "starting": "Started. Stop with the ■ button.",
         "stopping": "⏹ Stopping...",
         "interrupted": "⏹ Stopped. (Downloaded files are kept.)",
+        "zip_partial": "📦 A partial zip of the run so far was created (re-run to continue):\n{z}",
         "disk_low": "⛔ Low disk space; stopped.",
         "run_err": "⛔ Error: {e}",
         "flood": "⏳ Telegram limit; waiting {s}s...",
@@ -1216,14 +1218,21 @@ async def scrape(app, client, item, speed, total_hint=None):
         pass
 
     zip_path = None
-    if not interrupted and cfg.get("zip", True) and first_id is not None:
-        zip_path = os.path.join(app.zips, f"{sanitize(name)}_{pid}_{first_id}_{last_done}.zip")
+    # P4-7: an interrupted run also gets a zip (marked _partial) when it exported
+    # something this run — the resume flow simply continues on the next run.
+    # A disk-full stop skips the zip: there is no room to write it anyway.
+    if cfg.get("zip", True) and first_id is not None \
+            and (not interrupted or (stats["msgs"] and reason != "disk")):
+        partial = bool(interrupted)
+        zip_path = os.path.join(
+            app.zips,
+            f"{sanitize(name)}_{pid}_{first_id}_{last_done}{'_partial' if partial else ''}.zip")
         status(t("zipping"))
         try:
             await asyncio.to_thread(make_zip, folder, zip_path)   # off the loop: never blocks
             try:
                 with open(log_path, "a", encoding="utf-8") as lf:
-                    lf.write(f"Zip: {zip_path}\n")
+                    lf.write(("Zip (partial): " if partial else "Zip: ") + zip_path + "\n")
             except Exception:
                 pass
         except Exception as e:
@@ -1246,6 +1255,8 @@ def report(res):
     if res["interrupted"]:
         r = res["reason"]
         say(t("interrupted") if r == "stop" else t("disk_low") if r == "disk" else t("run_err", e=r))
+        if res.get("zip"):
+            say(t("zip_partial", z=res["zip"]))
     else:
         say(t("done", d=res["folder"], z=res["zip"] or t("none")))
     say(t("summary", n=res["msgs"], f=res["files"], s=res["skipped"], e=res["errors"]))
