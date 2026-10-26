@@ -27,7 +27,7 @@ SESSION_ON_DRIVE = False  #@param {type:"boolean"}
 CLEAR_SCREEN = True       #@param {type:"boolean"}
 
 import os, sys, re, json, time, zipfile, asyncio, subprocess, getpass, random, shutil
-import textwrap, threading, collections, errno
+import textwrap, threading, collections, errno, unicodedata
 import concurrent.futures as cf
 from datetime import datetime
 
@@ -327,6 +327,18 @@ def notify(text):
     _msgs.append(text)
 
 
+def ui_slice(s, width):
+    """Cut a status line to width without leaving a dangling combining mark:
+    if the cut lands inside a Persian/Arabic cluster (base + diacritic), the orphan
+    combining mark is dropped together with the character it decorates."""
+    if len(s) <= width:
+        return s
+    cut = s[:width]
+    while cut and unicodedata.combining(cut[-1]):
+        cut = cut[:-1]
+    return cut
+
+
 def _ui_tick():
     out = sys.stdout
     width = max(20, int(WIDTH)) - 2
@@ -337,7 +349,7 @@ def _ui_tick():
         say(_msgs.popleft())
     line = _ui["line"]
     if line is not None and line != _ui["shown"]:
-        out.write("\r" + str(line)[:width].ljust(width))
+        out.write("\r" + ui_slice(str(line), width).ljust(width))
         out.flush()
         _ui["shown"] = line
 
