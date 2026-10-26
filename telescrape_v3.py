@@ -1338,6 +1338,7 @@ def app_main():
     if from_secrets:
         app.cleanup_legacy()
     client = run(make_client(app.session_path(api_id), api_id, api_hash))
+    app.lock_session(api_id)          # 600 from the moment the file exists, before any login step
     try:
         login(client, phone, pwd2fa)
         app.lock_session(api_id)
