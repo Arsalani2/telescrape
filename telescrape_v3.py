@@ -27,7 +27,7 @@ SESSION_ON_DRIVE = False  #@param {type:"boolean"}
 CLEAR_SCREEN = True       #@param {type:"boolean"}
 
 import os, sys, re, json, time, zipfile, asyncio, subprocess, getpass, random, shutil
-import textwrap, threading, collections
+import textwrap, threading, collections, errno
 import concurrent.futures as cf
 from datetime import datetime
 
@@ -421,6 +421,11 @@ class Throttle:
 
 
 RETRY_ERRORS = (asyncio.TimeoutError, ConnectionError, OSError, ServerError, TimedOutError)
+
+
+def is_disk_full(e):
+    """True when e is a local 'no space left' OSError. Never retry those: stop the whole run."""
+    return isinstance(e, OSError) and e.errno in (errno.ENOSPC, errno.EDQUOT)
 
 
 async def tg_call(factory, th, timeout=90, tries=6):
@@ -915,6 +920,12 @@ async def download(client, m, path, size, th, tag=""):
             last = e
             if attempt < 3:
                 await nap(min(BACKOFF_BASE * 2 ** attempt, 40) + random.random())
+        except OSError as e:
+            if is_disk_full(e):
+                raise DiskLow()
+            last = e
+            if attempt < 3:
+                await nap(min(BACKOFF_BASE * 2 ** attempt, 40) + random.random())
         finally:
             if not task.done():
                 task.cancel()
@@ -1066,6 +1077,8 @@ async def scrape(app, client, item, speed):
                     except (Stopped, DiskLow):
                         raise
                     except Exception as e:
+                        if is_disk_full(e):
+                            raise DiskLow()       # disk filled mid-write: stop, don't spam Telegram
                         stats["errors"] += 1
                         err_lines.append(f"{m.id}: {type(e).__name__}: {e}")
                     stats["msgs"] += 1
