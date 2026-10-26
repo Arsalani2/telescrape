@@ -51,6 +51,7 @@ def _ensure(pkg, mod=None, required=True):
 
 
 _ensure("telethon>=1.40", mod="telethon")
+_ensure("cryptg", required=False)      # optional: fast AES downloads; Telethon uses it if present
 
 from telethon import TelegramClient, utils
 from telethon.errors import (FloodWaitError, SessionPasswordNeededError, PhoneCodeInvalidError,
