@@ -723,6 +723,9 @@ async def load_dialogs(client):
     for i in range(3):
         try:
             return await asyncio.wait_for(_collect(), 600)
+        except FloodWaitError as e:
+            last = e
+            await nap(float(e.seconds) + 2)          # sit out the limit, keep STOP responsive
         except RETRY_ERRORS as e:
             last = e
             await asyncio.sleep(3 * (i + 1))
@@ -789,6 +792,19 @@ TME_RE = re.compile(r"(?:https?://)?(?:www\.)?(?:t|telegram)\.(?:me|dog)/(.+)", 
 USERNAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{3,31}")
 
 
+async def _get_entity(client, peer):
+    """get_entity with visible status, a short timeout, and FloodWait retries."""
+    status(t("loading"))
+    for _ in range(3):
+        try:
+            return await asyncio.wait_for(client.get_entity(peer), 20)
+        except FloodWaitError as e:
+            await nap(float(e.seconds) + 2)
+        except Exception:
+            return None
+    return None
+
+
 async def resolve(client, text, items):
     """Chat from a list ID, numeric ID, @username or t.me link. Returns an item or None."""
     text = str(text or "").strip().translate(_DIGITS)
@@ -823,15 +839,15 @@ async def resolve(client, text, items):
                 real, cls = utils.resolve_id(n)
                 peers = [cls(real)]
             for peer in peers:
-                try:
-                    return make_item(await asyncio.wait_for(client.get_entity(peer), 30))
-                except Exception:
-                    continue
+                ent = await _get_entity(client, peer)
+                if ent is not None:
+                    return make_item(ent)
             return None
         uname = text.lstrip("@")
         if not USERNAME_RE.fullmatch(uname):
             return None
-        return make_item(await asyncio.wait_for(client.get_entity(uname), 30))
+        ent = await _get_entity(client, uname)
+        return make_item(ent) if ent is not None else None
     except Exception:
         return None
 
@@ -908,10 +924,14 @@ async def download(client, m, path, size, th, tag=""):
 
 
 async def count_msgs(client, entity):
-    try:
-        return (await asyncio.wait_for(client.get_messages(entity, limit=0), 30)).total
-    except Exception:
-        return None
+    for _ in range(3):
+        try:
+            return (await asyncio.wait_for(client.get_messages(entity, limit=0), 30)).total
+        except FloodWaitError as e:
+            await nap(float(e.seconds) + 2)          # short limits no longer silently eaten
+        except Exception:
+            return None
+    return None
 
 
 async def scrape(app, client, item, speed):
@@ -1195,7 +1215,21 @@ def settings_screen(app, client, api_id):
 
 def login(client, phone, pwd2fa):
     """Interactive login, step by step from synchronous code. Raises LoginAbort on give-up."""
-    run(client.connect())
+    for _ in range(3):
+        try:
+            run(client.connect())
+            break
+        except FloodWaitError as e:
+            if e.seconds > 600:
+                say(t("flood_login", s=e.seconds))
+                raise LoginAbort()
+            say(t("flood_login", s=e.seconds))
+            time.sleep(e.seconds + 2)
+        except Exception as e:
+            say(t("login_err", e=short_err(e)))
+            raise LoginAbort()
+    else:
+        raise LoginAbort()
     if run(client.is_user_authorized()):
         return
 
@@ -1206,8 +1240,11 @@ def login(client, phone, pwd2fa):
                 run(client.send_code_request(phone))
                 return
             except FloodWaitError as e:
+                if e.seconds > 600:
+                    say(t("flood_login", s=e.seconds))
+                    raise LoginAbort()
                 say(t("flood_login", s=e.seconds))
-                raise LoginAbort()
+                time.sleep(e.seconds + 2)
             except Exception as e:
                 say(t("login_err", e=short_err(e)))
                 phone = norm_phone(ask(t("phone")))
@@ -1233,8 +1270,11 @@ def login(client, phone, pwd2fa):
         except PhoneCodeInvalidError:
             say(t("login_err", e="invalid code"))
         except FloodWaitError as e:
+            if e.seconds > 600:
+                say(t("flood_login", s=e.seconds))
+                raise LoginAbort()
             say(t("flood_login", s=e.seconds))
-            raise LoginAbort()
+            time.sleep(e.seconds + 2)
         except Exception as e:
             say(t("login_err", e=short_err(e)))
     if not need_pwd:
@@ -1249,8 +1289,11 @@ def login(client, phone, pwd2fa):
         except PasswordHashInvalidError:
             say(t("login_err", e="wrong password"))
         except FloodWaitError as e:
+            if e.seconds > 600:
+                say(t("flood_login", s=e.seconds))
+                raise LoginAbort()
             say(t("flood_login", s=e.seconds))
-            raise LoginAbort()
+            time.sleep(e.seconds + 2)
         except Exception as e:
             say(t("login_err", e=short_err(e)))
         pw = None
@@ -1260,7 +1303,9 @@ def login(client, phone, pwd2fa):
 async def make_client(session, api_id, api_hash):
     c = TelegramClient(session, api_id, api_hash, connection_retries=10, retry_delay=3,
                        request_retries=5, timeout=30, auto_reconnect=True)
-    c.flood_sleep_threshold = 60
+    # False -> Telethon never sleeps through a FloodWait silently: every limit reaches our
+    # notify/Throttle/nap path, user messages stay visible and STOP stays responsive.
+    c.flood_sleep_threshold = False
     return c
 
 
