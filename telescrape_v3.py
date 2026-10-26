@@ -1170,8 +1170,10 @@ async def scrape(app, client, item, speed, total_hint=None):
             lf.write(f"Messages: {stats['msgs']} | Files: {stats['files']} | "
                      f"Skipped: {stats['skipped']} | Errors: {stats['errors']}\n")
             lf.write(f"First id: {first_id} | Last id: {last_done} | Rests: {th.rests}\n")
-            for line in err_lines[:200]:
+            for line in err_lines[:500]:
                 lf.write(f"ERR {line}\n")
+            if len(err_lines) > 500:
+                lf.write(f"ERR (+{len(err_lines) - 500} more errors not listed)\n")
             lf.write("-" * 80 + "\n")
     except Exception:
         pass
