@@ -32,14 +32,21 @@ import concurrent.futures as cf
 from datetime import datetime
 
 
-def _ensure(pkg, mod=None):
+def _ensure(pkg, mod=None, required=True):
+    """Import a package, pip-installing it if missing. required=False -> best effort only."""
     try:
         __import__(mod or pkg)
     except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", pkg])
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", pkg])
+        except Exception as e:
+            if required:
+                print(f"⛔ pip install failed for {pkg}: {e}")
+                print("⛔ نصب بسته ناموفق بود؛ اینترنت و دسترسی pip را بررسی و دوباره اجرا کنید.")
+                raise SystemExit(1)
 
 
-_ensure("telethon")
+_ensure("telethon>=1.40", mod="telethon")
 
 from telethon import TelegramClient, utils
 from telethon.errors import (FloodWaitError, SessionPasswordNeededError, PhoneCodeInvalidError,
@@ -87,6 +94,7 @@ S = {
         "pwd": "رمز دو مرحله‌ای: ",
         "login_err": "ورود ناموفق: {e}",
         "login_abort": "ورود متوقف شد. بعداً دوباره اجرا کنید.",
+        "fatal": "⛔ خطای غیرمنتظره: {e}",
         "code_resent": "کد جدید ارسال شد.",
         "flood_login": "تلگرام موقتاً محدود کرده. {s} ثانیه بعد دوباره امتحان کنید.",
         "login_ok": "✅ وارد شدید: {name}",
@@ -161,6 +169,7 @@ S = {
         "pwd": "2FA password: ",
         "login_err": "Login failed: {e}",
         "login_abort": "Login stopped. Run again later.",
+        "fatal": "⛔ Unexpected error: {e}",
         "code_resent": "New code sent.",
         "flood_login": "Telegram rate-limited you. Retry in {s}s.",
         "login_ok": "✅ Logged in: {name}",
@@ -1436,6 +1445,12 @@ def main():
     except (KeyboardInterrupt, EOFError):
         print()
         say(t("bye"))
+    except Exception as e:
+        say(t("fatal", e=short_err(e)))       # no raw tracebacks — project UX rule
+        try:
+            pause()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
