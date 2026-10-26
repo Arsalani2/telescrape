@@ -965,7 +965,7 @@ async def count_msgs(client, entity):
     return None
 
 
-async def scrape(app, client, item, speed):
+async def scrape(app, client, item, speed, total_hint=None):
     """Full export of one chat from its first message. Returns a result dict (never prints)."""
     entity, pid, name = item["entity"], item["id"], item["name"]
     cfg = app.settings
@@ -998,11 +998,13 @@ async def scrape(app, client, item, speed):
         done_before = 0
     last_done = resume_id if resume_id else None
 
-    try:
-        total = (await tg_call(lambda: client.get_messages(entity, limit=0), th, 60)).total or 0
-    except Stopped:
-        res.update(interrupted=True, reason="stop")
-        return res
+    total = total_hint                     # reuse the count shown in the chat header (P3-6)
+    if total is None:
+        try:
+            total = (await tg_call(lambda: client.get_messages(entity, limit=0), th, 60)).total or 0
+        except Stopped:
+            res.update(interrupted=True, reason="stop")
+            return res
     if total == 0 and not resume_id:
         res["empty"] = True
         return res
@@ -1207,7 +1209,7 @@ def start_chat(app, client, item):
         return
     say(t("starting"))
     try:
-        res = run(scrape(app, client, item, app.speed), stoppable=True)
+        res = run(scrape(app, client, item, app.speed, total_hint=total), stoppable=True)
     except KeyboardInterrupt:
         say(t("interrupted"))
         return
