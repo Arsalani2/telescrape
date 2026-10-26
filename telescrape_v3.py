@@ -671,12 +671,17 @@ class App:
         for k, dv in self.DEFAULTS.items():
             if k in loaded and type(loaded[k]) is type(dv):
                 self.settings[k] = loaded[k]
-        self.speed = SPEED if SPEED in PROFILES else "normal"
+        # Speed lives next to settings (validated): saved value wins over the form default,
+        # so a change made in the settings menu survives the next run.
+        sp = loaded.get("speed")
+        if sp not in PROFILES:
+            sp = SPEED if SPEED in PROFILES else "normal"
+        self.speed = sp
         self.local = local
 
     def save_settings(self):
         try:
-            save_json(self.settings_path, self.settings)
+            save_json(self.settings_path, {**self.settings, "speed": self.speed})
         except Exception:
             pass
 
