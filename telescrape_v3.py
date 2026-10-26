@@ -522,6 +522,13 @@ def fmt_date(m):
         return "N/A"
 
 
+def _write_sidecar(path, author, dt, kind, text):
+    """Companion .info.txt file next to a media file."""
+    with open(path + ".info.txt", "w", encoding="utf-8") as inf:
+        inf.write(f"Author: {author}\nDate: {dt}\nType: {kind}\n"
+                  f"Caption: {text or 'None'}\n")
+
+
 DEFAULT_EXT = {"Photo": ".jpg", "Voice": ".ogg", "Music": ".mp3", "Video": ".mp4",
                "VideoMessage": ".mp4", "GIF": ".mp4", "Sticker": ".webp", "File": ""}
 
@@ -1072,6 +1079,9 @@ async def scrape(app, client, item, speed, total_hint=None):
             if status_txt:
                 stats["skipped"] += 1
                 mf.write(f"File: {fname} -> {status_txt}\n")
+                if cfg.get("sidecar") and os.path.exists(path) \
+                        and not os.path.exists(path + ".info.txt"):
+                    _write_sidecar(path, author, dt, kind, text)
             else:
                 tag = f"{int((done_before + stats['msgs']) * 100 / total):3d}% #{mid}"
                 ok = await download(client, m, path, size, th, tag)
@@ -1079,9 +1089,7 @@ async def scrape(app, client, item, speed, total_hint=None):
                     stats["files"] += 1
                     mf.write(f"File: {fname}\n")
                     if cfg.get("sidecar"):
-                        with open(path + ".info.txt", "w", encoding="utf-8") as inf:
-                            inf.write(f"Author: {author}\nDate: {dt}\nType: {kind}\n"
-                                      f"Caption: {text or 'None'}\n")
+                        _write_sidecar(path, author, dt, kind, text)
                     try:
                         real = os.path.getsize(path)
                     except OSError:
