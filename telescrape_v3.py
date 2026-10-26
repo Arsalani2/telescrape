@@ -1027,7 +1027,9 @@ async def scrape(app, client, item, speed, total_hint=None):
             s = getattr(m, "sender", None)
             if s is None:
                 try:
-                    s = await asyncio.wait_for(m.get_sender(), 20)
+                    s = await tg_call(lambda: m.get_sender(), th, 30, tries=2)  # throttled (P4-8)
+                except Stopped:
+                    raise
                 except Exception:
                     s = None
             cache[sid] = " ".join(((utils.get_display_name(s) if s else "") or str(sid)).split())
