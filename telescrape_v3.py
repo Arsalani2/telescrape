@@ -78,6 +78,7 @@ S = {
         "secrets_missing": "⚠️ Secret پیدا نشد: {names}\n🔑 در Colab بسازید و «Notebook access» را روشن کنید. فعلاً دستی وارد کنید.",
         "legacy_removed": "🧹 فایل قدیمی API Hash پاک شد (دیگر لازم نیست).",
         "old_session": "⚠️ session قدیمی روی Drive هست. اگر لازم ندارید پاکش کنید:\n{p}",
+        "prev_closed": "🧹 کلاینتِ اجرای قبلی بسته شد (جلوگیری از دو اتصال روی یک session).",
         "api_id": "API ID: ",
         "api_hash": "API Hash (نامرئی): ",
         "bad_hash": "API Hash باید ۳۲ کاراکتر hex باشد.",
@@ -151,6 +152,7 @@ S = {
         "secrets_missing": "⚠️ Secret not found: {names}\n🔑 Create it in Colab and enable 'Notebook access'. Enter manually for now.",
         "legacy_removed": "🧹 Old saved API Hash file removed (no longer needed).",
         "old_session": "⚠️ An old session is on Drive. Delete it if unneeded:\n{p}",
+        "prev_closed": "🧹 Previous run's client closed (avoids two connections on one session).",
         "api_id": "API ID: ",
         "api_hash": "API Hash (hidden): ",
         "bad_hash": "API Hash must be 32 hex characters.",
@@ -1329,6 +1331,30 @@ async def _disconnect(client):
         await r
 
 
+def _cleanup_previous_session():
+    """Re-running the Colab cell re-executes this module, so module globals reset and the
+    previous client/loop become unreachable. We therefore keep the reference on the sys
+    module (which survives re-execution) and close the old client before making a new one —
+    two live clients on one SQLite session file risk 'database is locked'."""
+    prev = getattr(sys, "_telescrape_prev", None)
+    if not prev:
+        return
+    sys._telescrape_prev = None
+    client, loop = prev
+    try:
+        asyncio.run_coroutine_threadsafe(_disconnect(client), loop).result(timeout=30)
+    except Exception:
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+    try:
+        loop.call_soon_threadsafe(loop.stop)
+    except Exception:
+        pass
+    say(t("prev_closed"))
+
+
 def app_main():
     app = App()
     print(hr())
@@ -1337,7 +1363,9 @@ def app_main():
     api_id, api_hash, phone, pwd2fa, from_secrets = get_creds()
     if from_secrets:
         app.cleanup_legacy()
+    _cleanup_previous_session()
     client = run(make_client(app.session_path(api_id), api_id, api_hash))
+    sys._telescrape_prev = (client, _BG["loop"])   # survives cell re-runs (kept on sys)
     app.lock_session(api_id)          # 600 from the moment the file exists, before any login step
     try:
         login(client, phone, pwd2fa)
