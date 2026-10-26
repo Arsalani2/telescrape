@@ -1550,7 +1550,97 @@ def app_main():
     say(t("bye"))
 
 
+def _selftest():
+    """Zero-dependency smoke tests for the pure helpers (no pytest, no Telegram):
+    python telescrape_v3.py --selftest"""
+    import io
+    import contextlib
+    import tempfile
+
+    ok = fail = 0
+
+    def eq(got, want, label):
+        nonlocal ok, fail
+        if got == want:
+            ok += 1
+        else:
+            fail += 1
+            print(f"FAIL {label}: got {got!r}, want {want!r}")
+
+    # sanitize: specials, traversal, empty, limit
+    eq(sanitize("a/b\\c:d*e?f<g>h|i"), "a_b_c_d_e_f_g_h_i", "sanitize.specials")
+    eq(sanitize("../../etc/passwd"), "etc_passwd", "sanitize.traversal")
+    eq(sanitize("   "), "chat", "sanitize.blank")
+    eq(sanitize(""), "chat", "sanitize.empty")
+    eq(sanitize("x" * 100, 40), "x" * 40, "sanitize.limit")
+
+    # safe_ext: remote extensions are never trusted inside a path
+    eq(safe_ext(".jpg", "Photo"), ".jpg", "ext.ok")
+    eq(safe_ext(".php", "File"), "", "ext.untrusted")
+    eq(safe_ext("../x", "File"), "", "ext.traversal")
+    eq(safe_ext(None, "Photo"), ".jpg", "ext.default")
+    eq(safe_ext("", "Video"), ".mp4", "ext.video_default")
+
+    # norm_phone: local formats, 00-prefix, Persian digits, spacing junk
+    eq(norm_phone("09121234567"), "+989121234567", "phone.local09")
+    eq(norm_phone("9121234567"), "+989121234567", "phone.local9")
+    eq(norm_phone("+989121234567"), "+989121234567", "phone.plus")
+    eq(norm_phone("00989121234567"), "+989121234567", "phone.00")
+    eq(norm_phone("۰۹۱۲۱۲۳۴۵۶۷"), "+989121234567", "phone.fa_digits")
+    eq(norm_phone("(+44) 20 7946 0958"), "+442079460958", "phone.spaces")
+
+    # Throttle: flood multiplier growth, cap, decay
+    th = Throttle("normal")
+    eq(th.mult, 1.0, "throttle.initial")
+    for _ in range(5):
+        th.flood(10)
+    eq(th.mult, 4.0, "throttle.cap")
+    for _ in range(200):
+        th.ok()
+    eq(th.mult, 1.0, "throttle.decay")
+    eq(0 <= th.batch_pause() <= 32.0, True, "throttle.pause_range")
+
+    # is_disk_full
+    eq(is_disk_full(OSError(errno.ENOSPC, "no space")), True, "disk.enospc")
+    eq(is_disk_full(OSError(errno.EACCES, "denied")), False, "disk.eacces")
+    eq(is_disk_full(ValueError("x")), False, "disk.not_oserror")
+
+    # ui_slice: a cut never leaves a dangling combining mark
+    eq(ui_slice("abc", 5), "abc", "slice.short")
+    eq(ui_slice("abcdef", 3), "abc", "slice.cut")
+    eq(ui_slice("اب" + "ْ" + "cd", 3), "اب", "slice.combining")
+
+    # say(): runaway tokens hard-wrap within WIDTH
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        say("x" * 200)
+    eq(max(len(l) for l in buf.getvalue().splitlines()) <= max(20, int(WIDTH)),
+       True, "say.wrap")
+
+    # folder_for: a renamed title reuses (renames) the existing pid folder
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, "old_title_123"))
+        eq(folder_for(tmp, "new title", 123), os.path.join(tmp, "new_title_123"),
+           "folder.rename")
+        eq(os.path.isdir(os.path.join(tmp, "new_title_123")), True, "folder.moved")
+        eq(folder_for(tmp, "another", 456), os.path.join(tmp, "another_456"),
+           "folder.fresh")
+
+    # json roundtrip
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, "j.json")
+        save_json(p, {"a": 1, "b": "فارسی"})
+        eq(load_json(p), {"a": 1, "b": "فارسی"}, "json.roundtrip")
+        eq(load_json(os.path.join(tmp, "missing.json")), None, "json.missing")
+
+    print(f"self-test: {ok} passed, {fail} failed")
+    raise SystemExit(1 if fail else 0)
+
+
 def main():
+    if "--selftest" in sys.argv:
+        _selftest()
+        return
     try:
         app_main()
     except LoginAbort:
@@ -1561,10 +1651,3 @@ def main():
     except Exception as e:
         say(t("fatal", e=short_err(e)))       # no raw tracebacks — project UX rule
         try:
-            pause()
-        except Exception:
-            pass
-
-
-if __name__ == "__main__":
-    main()
