@@ -269,7 +269,18 @@ def hr():
 def say(text=""):
     w = max(20, int(WIDTH))
     for line in str(text).split("\n"):
-        print(textwrap.fill(line, w, break_long_words=False, break_on_hyphens=False) if line else "")
+        if not line:
+            print()
+            continue
+        if len(line) > w:            # hard-wrap runaway tokens (URLs, hashes) fill() won't break
+            pieces = []
+            for tok in line.split(" "):
+                while len(tok) > w:
+                    pieces.append(tok[:w])
+                    tok = tok[w:]
+                pieces.append(tok)
+            line = " ".join(pieces)
+        print(textwrap.fill(line, w, break_long_words=False, break_on_hyphens=False))
 
 
 def clear():
