@@ -926,7 +926,7 @@ async def download(client, m, path, size, th, tag=""):
                     raise asyncio.TimeoutError("stalled")
                 status(f"{tag} ⬇ {st['cur'] // MB}/{size // MB}MB")
             r = task.result()
-            if r and os.path.exists(r) and os.path.getsize(r) > 0:
+            if r and os.path.exists(r):        # a 0-byte file is valid if the transfer finished
                 os.replace(r, path)
                 th.ok()
                 return True
