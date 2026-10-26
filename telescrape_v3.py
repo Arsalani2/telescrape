@@ -567,7 +567,7 @@ def make_zip(folder, zip_path):
     with zipfile.ZipFile(tmp, "w", allowZip64=True) as zf:
         for root, _, files in os.walk(folder):
             for f in files:
-                if f.endswith(".part"):
+                if f.endswith(".part") or f == "state.json":
                     continue
                 full = os.path.join(root, f)
                 if os.path.islink(full):
@@ -980,16 +980,30 @@ async def scrape(app, client, item, speed):
     stats = {"msgs": 0, "files": 0, "skipped": 0, "errors": 0}
     res = {"folder": folder, "zip": None, "interrupted": False, "reason": "", "empty": False, **stats}
     cache, err_lines = {}, []
-    first_id = last_done = None
     t0 = time.time()
     PROG["txt"] = ""
+
+    # True resume (P3-4): state.json remembers the last completed message; a re-run
+    # continues from there in append mode instead of re-fetching the whole chat.
+    state_path = os.path.join(folder, "state.json")
+    st = load_json(state_path) or {}
+    try:
+        resume_id = int(st.get("last_id") or 0)
+    except (TypeError, ValueError):
+        resume_id = 0
+    first_id = st.get("first_id") if isinstance(st.get("first_id"), int) else None
+    try:
+        done_before = int(st.get("done") or 0)
+    except (TypeError, ValueError):
+        done_before = 0
+    last_done = resume_id if resume_id else None
 
     try:
         total = (await tg_call(lambda: client.get_messages(entity, limit=0), th, 60)).total or 0
     except Stopped:
         res.update(interrupted=True, reason="stop")
         return res
-    if total == 0:
+    if total == 0 and not resume_id:
         res["empty"] = True
         return res
 
@@ -1055,7 +1069,7 @@ async def scrape(app, client, item, speed):
                 stats["skipped"] += 1
                 mf.write(f"File: {fname} -> {status_txt}\n")
             else:
-                tag = f"{int(stats['msgs'] * 100 / total):3d}% #{mid}"
+                tag = f"{int((done_before + stats['msgs']) * 100 / total):3d}% #{mid}"
                 ok = await download(client, m, path, size, th, tag)
                 if ok:
                     stats["files"] += 1
@@ -1079,9 +1093,10 @@ async def scrape(app, client, item, speed):
         mf.write("-" * 80 + "\n")
 
     interrupted, reason = False, ""
-    last_id = 0
+    last_id = resume_id
+    mode = "a" if resume_id else "w"
     try:
-        with open(meta_path, "w", encoding="utf-8") as mf, open(md_path, "w", encoding="utf-8") as md:
+        with open(meta_path, mode, encoding="utf-8") as mf, open(md_path, mode, encoding="utf-8") as md:
             while True:
                 if STOP.is_set():
                     raise Stopped()
@@ -1105,9 +1120,12 @@ async def scrape(app, client, item, speed):
                     if first_id is None:
                         first_id = m.id
                     last_done = last_id = m.id
-                    pct = min(99, int(stats["msgs"] * 100 / total))
-                    PROG["txt"] = f"{pct}% {stats['msgs']}/{total}"
-                    status(f"{pct:3d}% {stats['msgs']}/{total} f{stats['files']} e{stats['errors']}")
+                    save_json(state_path, {"last_id": last_id, "first_id": first_id,
+                                           "done": done_before + stats["msgs"]})
+                    done_n = done_before + stats["msgs"]
+                    pct = min(99, int(done_n * 100 / total))
+                    PROG["txt"] = f"{pct}% {done_n}/{total}"
+                    status(f"{pct:3d}% {done_n}/{total} f{stats['files']} e{stats['errors']}")
                     if stats["msgs"] % 50 == 0:
                         mf.flush()
                         md.flush()
@@ -1133,6 +1151,7 @@ async def scrape(app, client, item, speed):
     try:
         with open(log_path, "a", encoding="utf-8") as lf:
             lf.write(f"Run start: {datetime.fromtimestamp(t0).strftime('%Y-%m-%d %H:%M:%S')}\n")
+            lf.write(f"Resume from id: {resume_id or 0} (already done: {done_before})\n")
             lf.write(f"Duration (s): {time.time() - t0:.1f}\n")
             lf.write(f"Chat: {name} ({pid}) | Interrupted: {interrupted} {reason}\n")
             lf.write(f"Messages: {stats['msgs']} | Files: {stats['files']} | "
