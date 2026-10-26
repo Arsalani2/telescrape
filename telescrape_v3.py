@@ -602,6 +602,8 @@ def norm_phone(p):
         p = "+" + p[2:]
     if re.fullmatch(r"09\d{9}", p):          # Iranian local format
         p = "+98" + p[1:]
+    elif re.fullmatch(r"9\d{9}", p):        # same without the leading zero
+        p = "+98" + p
     if p and not p.startswith("+"):
         p = "+" + p
     return p
