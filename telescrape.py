@@ -2278,6 +2278,9 @@ def main():
     if os.environ.get("TS_WEB_CHILD"):
         ts._USERDATA_DEAD = True
     _detect_secrets()
+    # فیکس NB-15 (پیگیری): web.log باید بگوید کدام سکرت‌ها به سرور رسیده (فقط نام‌ها)
+    _got = [k for k, v in STATE["secrets"].items() if v]
+    print("سکرت‌های تشخیص‌داده‌شده:", _got or "هیچ — سکرت‌ها پاس نشده‌اند؛ سلول لانچر COLAB.md را اجرا کنید")
     print(f"TeleScrape Web listening on 0.0.0.0:{args.port}")
     print("برای باز کردن روی گوشی، در یک سلولِ کرنل اجرا کنید (proxyPort به‌جای تابع منسوخ‌شده):")
     print("    from google.colab import output")
@@ -2599,9 +2602,10 @@ def api_resolve():
                              "username": it["username"]}})
 
 
-@web.route("/api/chat/<int:cid>")
+@web.route("/api/chat/<int(signed=True):cid>")
 def api_chat(cid):
-    """کارت چت: نام + آیدی + تعداد پیام با count_msgs (قابلیت WEB-04)."""
+    """کارت چت: نام + آیدی + تعداد پیام با count_msgs (قابلیت WEB-04).
+    فیکس NB-17: آیدی کانال/گروه منفی است؛ مبدل int پیش‌فرض علامت را رد می‌کرد → 404."""
     r = _require_ready()
     if r:
         return r
@@ -3408,6 +3412,10 @@ function poll() {
     } else if (d.result) {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       showResult(d.result);
+    } else if (!$("#progChat").textContent) {
+      // فیکس NB-18 (دفاعی): بدون job و نتیجه، صفحه بی‌توضیح خالی نمی‌ماند
+      $("#progChat").textContent = "اسکرپی در جریان نیست";
+      $("#phaseNote").textContent = "اطلاعاتی از سرور نرسید؛ احتمالاً سرور ری‌استارت شده. به چت‌ها برگردید و دوباره شروع کنید.";
     }
     if (d.phase === "need_login" && (!job || job.done)) {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
@@ -3822,6 +3830,11 @@ def _selftest():
         eq(_check_token(), True, "token.query")
     with web.test_request_context("/?t=deadbeef"):
         eq(_check_token(), False, "token.query_bad")
+
+    # فیکس NB-17: آیدی منفی (کانال/گروه) باید به api_chat مچ شود
+    _m = web.url_map.bind("localhost")
+    eq(_m.match("/api/chat/-1004290167321", method="GET")[0], "api_chat", "route.negative")
+    eq(_m.match("/api/chat/4290167321", method="GET")[0], "api_chat", "route.positive")
 
     # ماشین حالت لاگین با کلاینت فیک — بدون شبکه (قابلیت WEB-03/WEB-07)
     class _FakeMe:
