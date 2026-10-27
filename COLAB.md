@@ -21,43 +21,37 @@
 
 ## ۱) دانلود + تست خودکار
 ```
-!wget -q https://raw.githubusercontent.com/Personalmo/telescrape/main/telescrape.py
+!rm -f telescrape.py telescrape.py.*
+!wget -q -O telescrape.py "https://raw.githubusercontent.com/Personalmo/telescrape/main/telescrape.py?t=$(date +%s)"
 !python telescrape.py --selftest
 ```
+> ⚠️ فیکس NB-21: بدون `-O`، دستور `wget -q` اگر `telescrape.py` از قبل باشد فایل قدیمی را
+> نگه می‌دارد و نسخه‌ی تازه را بی‌صدا در `telescrape.py.1` می‌ریزد — یعنی بعد از هر آپدیت
+> همان کد قدیمی اجرا می‌شد. `rm` + `-O` این را حل می‌کند و `?t=` کش ۵دقیقه‌ای GitHub را دور می‌زند.
 
-## ۲) لانچر سرور (سکرت‌ها را پاس می‌دهد)
-> TG_PHONE **اختیاری** است: اگر نسازید فقط شماره را دستی در فرم وارد می‌کنید؛
-> بقیه‌ی سکرت‌ها خودکار خوانده می‌شوند (پر باشد → خودش می‌رود؛ خالی باشد → دستی).
+## ۲) لانچر سرور (سکرت‌ها را می‌خواند، پاس می‌دهد و تایید می‌گیرد)
+> فیکس NB-21: لانچر حالا داخل خودِ `telescrape.py` است؛ دیگر سلول بلند کپی نمی‌کنید.
+> TG_PHONE **اختیاری** است: اگر نسازید فقط شماره را دستی در فرم وارد می‌کنید.
 ```python
-import os, subprocess, time
-from google.colab import userdata
-
-def _sec(name):
-    try:
-        v = userdata.get(name)
-        return str(v) if v else None
-    except Exception:
-        return None
-
-# فیکس NB-20: پروسه‌ی قدیمی (بدون سکرتِ تازه) اول کشته شود تا پورت آزاد شود
-subprocess.run(["pkill", "-f", "telescrape.py"], capture_output=True)
-time.sleep(2)
-
-env = {**os.environ, "TS_WEB_CHILD": "1"}
-found = []
-for name in ("TG_API_ID", "TG_API_HASH", "TG_PHONE", "TG_2FA_PASSWORD", "TS_ENC_KEY"):
-    v = _sec(name)
-    if v:
-        env[name] = v
-        found.append(name)
-
-with open("web.log", "w") as log:
-    subprocess.Popen(["python", "telescrape.py", "--port", "8000"], env=env,
-                     stdout=log, stderr=log)
-print("سکرت‌های پاس‌شده:", found or "هیچ — مقادیر را دستی در فرم وارد می‌کنید")
-time.sleep(8)
-print(open("web.log").read())   # باید بنویسد: سکرت‌های تشخیص‌داده‌شده: [...]
+import sys; sys.modules.pop("telescrape", None)
+import telescrape
+telescrape.colab_launch()        # پورت دیگر: colab_launch(port=8001)
 ```
+خروجی نمونه (وضعیت هر سکرت جدا گزارش می‌شود؛ مقدارها هرگز چاپ نمی‌شوند):
+```
+✅ سکرت TG_API_ID خوانده شد
+✅ سکرت TG_API_HASH خوانده شد
+➖ سکرت TG_PHONE ساخته نشده (اختیاری)
+⛔ سکرت TG_2FA_PASSWORD: «Notebook access» خاموش است — در 🔑 Secrets روشنش کنید
+🚀 سرور اجرا شد (پورت 8000؛ لاگ: web.log)
+✅ سرور این سکرت‌ها را دریافت کرد: TG_API_ID, TG_API_HASH
+🔗 این لینک را روی گوشی باز کنید:
+```
+* پروسه‌ی قدیمی را خودش می‌کشد و تا آزاد شدن پورت صبر می‌کند.
+* بعد از بالا آمدن، از **خودِ سرور** می‌پرسد سکرت‌ها را دیده یا نه
+  (`✅ سرور این سکرت‌ها را دریافت کرد` یا `⚠️ سرور این سکرت‌ها را ندید`).
+* لینک گوشی را هم همین‌جا چاپ می‌کند؛ سلول ۳ فقط برای گرفتن دوباره‌ی لینک است.
+* نام‌های جایگزین هم خوانده می‌شوند (`API_ID`, `API_HASH`, `PHONE`, `ENC_KEY`).
 
 ## ۳) باز کردن روی گوشی
 ```python
@@ -76,15 +70,23 @@ drive.mount('/content/drive')
 
 ## ری‌استارت سرور
 سلول لانچر (۲) خودش ابتدای کار پروسه‌ی قدیمی را می‌کشد؛ فقط دوباره اجرایش کنید
-(و بعد سلول ۳ برای لینک تازه). اگر دستی لازم شد:
-```
-!pkill -f telescrape.py
+(لینک تازه را هم همان چاپ می‌کند). دستی لازم شد، **داخل یک سلولِ پایتون** (نه `!pkill -f`، که شلِ
+خودش را هم می‌کشد):
+```python
+import subprocess; subprocess.run(["pkill", "-f", r"[t]elescrape\.py"])
 ```
 
 ## عیب‌یابی
 - **صفحه باز نمی‌شود**: خروجی سلول ۲ را چک کنید — در web.log باید
   `TeleScrape Web listening on 0.0.0.0:8000` باشد.
-- **سکرت خوانده نمی‌شود**: Notebook access آن سکرت روشن است؟ → ری‌استارت سرور.
+- **سکرت خوانده نمی‌شود**: خروجی سلول ۲ علتِ هر سکرت را می‌گوید —
+  «ساخته نشده» (اسم را با جدول بالا مقایسه کنید) / «Notebook access خاموش است»
+  (در 🔑 Secrets برای **همین نوت‌بوک** روشنش کنید؛ نوت‌بوک تازه یا کپی‌شده خاموش شروع می‌شود) /
+  «timeout» (سلول را دوباره اجرا کنید).
+- **صفحه می‌گوید «سرور بدون لانچر اجرا شده»**: سرور را با `!python telescrape.py` یا لانچر قدیمی
+  اجرا کرده‌اید؛ سلول ۲ را اجرا کنید.
+- **بعد از آپدیت ریپو همان رفتار قبلی می‌ماند**: سلول ۱ را کامل (با `rm` و `-O`) اجرا کنید؛
+  `ls telescrape.py*` نباید فایل `.1` نشان بدهد.
 - **لیست چت‌ها نمی‌آید**: آخر web.log را بفرستید:
   `print(open('web.log').read()[-2000:])`
 - بعد از هر بروزرسانی ریپو: سلول ۱ → ری‌استارت → سلول ۲.

@@ -4,10 +4,14 @@
 TeleScrape — یک فایل، همه‌ی TeleScrape: موتور + لایه‌ی وبِ موبایل‌پسند (هم‌نام ریپو)
 
 اجرا در Colab (جزئیات کامل در COLAB.md):
-    !wget -q https://raw.githubusercontent.com/Personalmo/telescrape/main/telescrape.py
+    !rm -f telescrape.py telescrape.py.*
+    !wget -q -O telescrape.py "https://raw.githubusercontent.com/Personalmo/telescrape/main/telescrape.py?t=$(date +%s)"
     !python telescrape.py --selftest
-سپس سلول «لانچر» COLAB.md — سکرت‌ها را از Notebook secrets در کرنل می‌خواند و
-به‌صورت env (فقط RAM) به سرور پاس می‌دهد، بعد سرور را اجرا می‌کند.
+سپس (فیکس NB-21) در یک سلول پایتون:
+    import sys; sys.modules.pop("telescrape", None)
+    import telescrape; telescrape.colab_launch()
+سکرت‌ها را از Notebook secrets در کرنل می‌خواند (وضعیت هر کدام را می‌گوید)، به‌صورت
+env (فقط RAM) به سرور پاس می‌دهد، سرور را اجرا می‌کند و از خودِ سرور تایید می‌گیرد.
 
 حالت‌ها:
     python telescrape.py                    → رابط وب (پیش‌فرض — موبایل‌پسند)
@@ -706,7 +710,9 @@ def get_secret(key):
                 if v:
                     return str(v).strip()
             except Exception as e:                   # فیکس NB-15: timeout ⇒ از این پس فقط env
-                if "timed out" in str(e).lower() or type(e).__name__ == "TimeoutException":
+                # فیکس NB-21: در پروسه‌ی جدا خطای userdata AttributeError است نه timeout؛
+                # هر خطای غیرقطعی (به‌جز «سکرت نیست/دسترسی خاموش») یعنی userdata در دسترس نیست.
+                if type(e).__name__ not in ("SecretNotFoundError", "NotebookAccessError"):
                     globals()["_USERDATA_DEAD"] = True
         v = os.environ.get(name)
         if v and v.strip():
@@ -2074,6 +2080,23 @@ W = {
         "csrf_bad": "توکن صفحه نامعتبر است؛ صفحه را رفرش کنید.",
         "not_found_404": "صفحه پیدا نشد.",
         "server_500": "خطای سرور؛ دوباره تلاش کنید.",
+        # فیکس NB-21: لانچر درون‌فایلی Colab
+        "no_launcher": "⚠️ سرور بدون لانچر اجرا شده؛ سکرت‌های Colab به آن نمی‌رسند. سلول «لانچر» COLAB.md را اجرا کنید.",
+        "ln_ok": "✅ سکرت {name} خوانده شد",
+        "ln_missing_req": "⚠️ سکرت {name} ساخته نشده (الزامی)",
+        "ln_missing_opt": "➖ سکرت {name} ساخته نشده (اختیاری)",
+        "ln_noaccess": "⛔ سکرت {name}: «Notebook access» خاموش است — در 🔑 Secrets روشنش کنید",
+        "ln_timeout": "⛔ سکرت {name}: Colab پاسخ نداد (timeout) — لانچر را دوباره اجرا کنید",
+        "ln_error": "⛔ سکرت {name}: خطا — {e}",
+        "ln_port_busy": "⛔ پورت {port} آزاد نشد؛ Runtime → Restart session بزنید یا پورت دیگری بدهید: colab_launch(port=8001)",
+        "ln_started": "🚀 سرور اجرا شد (پورت {port}؛ لاگ: web.log)",
+        "ln_verified": "✅ سرور این سکرت‌ها را دریافت کرد: {names}",
+        "ln_none_passed": "ℹ️ هیچ سکرتی پاس نشد؛ مقادیر را دستی در فرم وارد می‌کنید.",
+        "ln_mismatch": "⚠️ سرور این سکرت‌ها را ندید: {names} — احتمالاً پروسه‌ی قدیمی روی پورت است؛ لانچر را دوباره اجرا کنید.",
+        "ln_crashed": "⛔ سرور بالا نیامد؛ آخر web.log:",
+        "ln_slow": "⛔ سرور تا {s} ثانیه پاسخ نداد؛ آخر web.log:",
+        "ln_url": "🔗 این لینک را روی گوشی باز کنید:",
+        "ln_nokernel": "⚠️ این تابع باید داخل سلول نوت‌بوک Colab اجرا شود (سکرت‌ها فقط آنجا خوانده می‌شوند).",
     },
     "en": {
         "bad_api_id": "Invalid API ID.",
@@ -2101,6 +2124,23 @@ W = {
         "csrf_bad": "Page token mismatch; refresh the page.",
         "not_found_404": "Page not found.",
         "server_500": "Server error; try again.",
+        # NB-21: in-file Colab launcher
+        "no_launcher": "⚠️ The server was started without the launcher; Colab Secrets cannot reach it. Run the launcher cell from COLAB.md.",
+        "ln_ok": "✅ Secret {name} read",
+        "ln_missing_req": "⚠️ Secret {name} is not created (required)",
+        "ln_missing_opt": "➖ Secret {name} is not created (optional)",
+        "ln_noaccess": "⛔ Secret {name}: \"Notebook access\" is off — turn it on in 🔑 Secrets",
+        "ln_timeout": "⛔ Secret {name}: Colab did not answer (timeout) — run the launcher again",
+        "ln_error": "⛔ Secret {name}: error — {e}",
+        "ln_port_busy": "⛔ Port {port} did not free up; use Runtime → Restart session or pick another port: colab_launch(port=8001)",
+        "ln_started": "🚀 Server started (port {port}; log: web.log)",
+        "ln_verified": "✅ The server received these secrets: {names}",
+        "ln_none_passed": "ℹ️ No secrets were passed; you will enter the values in the form.",
+        "ln_mismatch": "⚠️ The server did not see these secrets: {names} — an old process probably holds the port; run the launcher again.",
+        "ln_crashed": "⛔ The server did not start; tail of web.log:",
+        "ln_slow": "⛔ The server did not answer within {s}s; tail of web.log:",
+        "ln_url": "🔗 Open this link on your phone:",
+        "ln_nokernel": "⚠️ Run this inside a Colab notebook cell (Secrets can only be read there).",
     },
 }
 
@@ -2219,8 +2259,11 @@ def index():
 def api_state():
     """فاز فعلی + token CSRF — پایه‌ی بوت فرانت (قابلیت WEB-01)."""
     _detect_secrets()          # فیکس NB-15: تشخیص تازه در هر بوتِ صفحه (مسیر env ارزان است)
+    # فیکس NB-21: در Colab اگر سرور بدون لانچر بالا آمده، رابط دلیلِ نرسیدن سکرت را نشان می‌دهد
+    _hint = "" if (os.environ.get("TS_WEB_CHILD") or not ts.IN_COLAB) else wt("no_launcher")
     with LOCK:
         return jsonify({
+            "hint": _hint,
             "phase": STATE["phase"],
             "token": STATE["token"],
             "who": STATE["who"],
@@ -2238,6 +2281,157 @@ def _parse_args():
     p.add_argument("--no-drive", action="store_true",
                    help="خروجی در دیسک موقت بماند (پیش‌فرض وب: Drive)")
     return p.parse_args()
+
+
+# ═══════════ NB-21: لانچر درون‌فایلی Colab (جایگزین سلول بلندِ کپی‌شونده) ═══════════
+# ریشه‌ها: (۱) سلول دانلود با `wget -q` روی فایل موجود، نسخه‌ی تازه را بی‌صدا در
+# telescrape.py.1 می‌ریخت و نسخه‌ی قدیمی اجرا می‌شد؛ (۲) لانچر دستی هر خطای userdata را
+# قورت می‌داد (سکرت نیست؟ Notebook access خاموش؟ timeout؟) و فقط نام‌های اصلی را می‌خواند؛
+# (۳) هیچ‌جا چک نمی‌شد که سرور واقعاً سکرت‌ها را گرفته. این تابع در کرنل اجرا می‌شود.
+
+_LN_REQUIRED = ("api_id", "api_hash")
+_LN_RANK = {"missing": 0, "error": 1, "timeout": 2, "no_access": 3}   # وضعیتِ آموزنده‌تر برنده است
+
+
+def _read_kernel_secrets(getter):
+    """سکرت‌ها را با getter (در Colab: userdata.get) می‌خواند — فقط داخل کرنل جواب می‌دهد.
+    خروجی: (values {نام اصلی سکرت: مقدار}, report {کلید: وضعیت}). نام‌های جایگزین هم دیده
+    می‌شوند و زیر نام اصلی پاس داده می‌شوند. وضعیت: ok | missing | no_access | timeout |
+    error:<نوع خطا>. هرگز مقدار یا متن خطا در report نمی‌آید (فقط نوع خطا)."""
+    values, report = {}, {}
+    for key, names in SECRET_NAMES.items():
+        status = "missing"
+        for name in names:
+            try:
+                v = getter(name)
+            except Exception as e:
+                en = type(e).__name__
+                if en == "SecretNotFoundError":
+                    s = "missing"
+                elif en == "NotebookAccessError":
+                    s = "no_access"
+                elif "timed out" in str(e).lower() or en in ("TimeoutException", "TimeoutError"):
+                    s = "timeout"
+                else:
+                    s = "error:" + en
+                if _LN_RANK[s.split(":", 1)[0]] > _LN_RANK[status.split(":", 1)[0]]:
+                    status = s
+                continue
+            if v and str(v).strip():
+                values[names[0]] = str(v).strip()
+                status = "ok"
+                break
+        report[key] = status
+    return values, report
+
+
+def _port_free(port):
+    """پورت آزاد است؟ با SO_REUSEADDR تا هم‌رفتار با Flask باشد (فیکس NB-21)."""
+    import socket
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind(("0.0.0.0", port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def _print_log_tail(path="web.log", n=1500):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            print(f.read()[-n:])
+    except OSError:
+        pass
+
+
+def colab_launch(port=8000, boot_wait=30, getter=None, show_url=True):
+    """لانچر Colab — داخل یک سلولِ نوت‌بوک اجرا کنید (COLAB.md، سلول ۲):
+        import sys; sys.modules.pop("telescrape", None)
+        import telescrape; telescrape.colab_launch()
+    سکرت‌ها را در کرنل می‌خواند (وضعیت هر کدام را می‌گوید)، پروسه‌ی قدیمی را می‌کشد، سرور را
+    با سکرت‌ها در env (فقط RAM) اجرا می‌کند و از خودِ سرور تایید می‌گیرد که آنها را دیده.
+    True یعنی همه‌ی سکرت‌های خوانده‌شده به سرور رسیده‌اند و سرور بالاست."""
+    import urllib.request
+    if getter is None:
+        try:
+            from google.colab import userdata
+            getter = userdata.get
+        except Exception:
+            print(wt("ln_nokernel"))
+            return False
+    values, report = _read_kernel_secrets(getter)
+    for key, st in report.items():
+        name = SECRET_NAMES[key][0]
+        kind, _, detail = st.partition(":")
+        if kind == "ok":
+            print(wt("ln_ok", name=name))
+        elif kind == "missing":
+            print(wt("ln_missing_req" if key in _LN_REQUIRED else "ln_missing_opt", name=name))
+        elif kind == "no_access":
+            print(wt("ln_noaccess", name=name))
+        elif kind == "timeout":
+            print(wt("ln_timeout", name=name))
+        else:
+            print(wt("ln_error", name=name, e=detail or "?"))
+
+    # پروسه‌ی قدیمی (بدون سکرتِ تازه) را بکش و تا آزاد شدن پورت صبر کن (NB-20)
+    try:
+        subprocess.run(["pkill", "-f", r"[t]elescrape\.py"], capture_output=True)
+    except OSError:
+        pass
+    for _ in range(20):
+        if _port_free(port):
+            break
+        time.sleep(0.5)
+    else:
+        print(wt("ln_port_busy", port=port))
+        return False
+
+    env = {**os.environ, "TS_WEB_CHILD": "1", "PYTHONUNBUFFERED": "1"}
+    env.update(values)
+    script = os.path.abspath(globals().get("__file__") or "telescrape.py")
+    with open("web.log", "w") as logf:
+        proc = subprocess.Popen([sys.executable, script, "--port", str(port)],
+                                env=env, stdout=logf, stderr=logf)
+    print(wt("ln_started", port=port))
+
+    state = None
+    deadline = time.time() + boot_wait
+    while time.time() < deadline and proc.poll() is None:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=2) as r:
+                state = json.loads(r.read().decode("utf-8"))
+            break
+        except Exception:
+            time.sleep(0.5)
+    if state is None:
+        print(wt("ln_crashed" if proc.poll() is not None else "ln_slow", s=boot_wait))
+        _print_log_tail()
+        return False
+
+    # تایید سرتاسری: خودِ سرور باید همان سکرت‌هایی را ببیند که در کرنل خوانده شد
+    seen = state.get("secrets") or {}
+    sent = [k for k in SECRET_NAMES if SECRET_NAMES[k][0] in values]
+    got = [SECRET_NAMES[k][0] for k in sent if seen.get(k)]
+    lost = [SECRET_NAMES[k][0] for k in sent if not seen.get(k)]
+    if not sent:
+        print(wt("ln_none_passed"))
+    elif lost:
+        print(wt("ln_mismatch", names=", ".join(lost)))
+    else:
+        print(wt("ln_verified", names=", ".join(got)))
+    if show_url:
+        try:
+            from google.colab import output
+            link = output.eval_js(f"google.colab.kernel.proxyPort({port})")
+            print(wt("ln_url"))
+            print(link)
+        except Exception:
+            pass
+    return not lost
 
 
 def main():
@@ -2261,6 +2455,10 @@ def main():
         cli_main()
         return
     args = _parse_args()
+    # فیکس NB-21: پرچم پروسه‌ی فرزند از همان ابتدا (قبل از ساخت App) تا هیچ get_secretی
+    # به userdata نرسد؛ سکرت‌ها فقط از env لانچر می‌آیند.
+    if os.environ.get("TS_WEB_CHILD"):
+        ts._USERDATA_DEAD = True
     if args.no_drive:
         ts.USE_DRIVE = False
     # فیکس WB-02: App/Drive در استارتاپ آماده می‌شود، نه در thread درخواست —
@@ -2273,10 +2471,8 @@ def main():
         STATE["app"] = ts.App()     # چون USE_DRIVE فقط با درایوِ ازپیش‌ماونت True می‌ماند، mount تعاملی در کار نیست
     except Exception as e:
         print(f"⚠️ ساخت App ناموفق بود ({ts.short_err(e)})؛ در اولین درخواست دوباره تلاش می‌شود.")
-    # فیکس NB-15: سکرت‌ها را سلول لانچر COLAB.md از کرنل خوانده و به‌صورت env پاس
-    # داده است؛ در پروسه‌ی جدا userdata.get فقط timeout می‌دهد → بی‌اثرش می‌کنیم
-    if os.environ.get("TS_WEB_CHILD"):
-        ts._USERDATA_DEAD = True
+    # فیکس NB-15: سکرت‌ها را لانچر از کرنل خوانده و به‌صورت env پاس داده است؛
+    # (بی‌اثر کردن userdata در فرزند: فیکس NB-21 — بالاتر، پیش از ساخت App)
     _detect_secrets()
     # فیکس NB-15 (پیگیری): web.log باید بگوید کدام سکرت‌ها به سرور رسیده (فقط نام‌ها)
     _got = [k for k, v in STATE["secrets"].items() if v]
@@ -2284,6 +2480,7 @@ def main():
     # فیکس NB-20: پورتِ اشغاری یعنی پروسه‌ی قدیمی (بدون سکرتِ تازه) دارد سرو می‌دهد
     import socket as _sock
     _probe = _sock.socket()
+    _probe.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)   # فیکس NB-21: هم‌رفتار با Flask
     try:
         _probe.bind(("0.0.0.0", args.port))
         _probe.close()
@@ -3187,6 +3384,7 @@ const FA = "۰۱۲۳۴۵۶۷۸۹";
 const fa = n => String(n ?? "").replace(/\d/g, d => FA[+d]);
 let TOKEN = "";
 let SECRETS = {};                        // فیکس WB-07: وجود Secretها برای راهنمای رمز 2FA
+let SEC_HINT = "";                       // فیکس NB-21: دلیل نرسیدن سکرت (سرور بدون لانچر)
 
 async function api(path, body, method) {
   const opt = { method: method || (body ? "POST" : "GET"),
@@ -3273,6 +3471,7 @@ function boot() {
     const p = (r.data && r.data.phase) || "setup";
     const sec = (r.data && r.data.secrets) || {};
     SECRETS = sec;                       // فیکس WB-07: بعد از بوت در دسترس showLogin
+    SEC_HINT = (r.data && r.data.hint) || "";
     if (p === "ready") showMain();
     else if (p === "need_code" || p === "need_2fa") showLogin(p);
     else showSetup(sec, p === "need_login");
@@ -3285,7 +3484,8 @@ function showSetup(sec, dead) {
     (sec.api_id && sec.api_hash ? "API ID و Hash از Secretها خوانده می‌شوند. "
      : "API ID و Hash از my.telegram.org لازم است. ") +
     (sec.phone ? "شماره از Secret خوانده می‌شود." : "شماره را با کد کشور وارد کنید.") +
-    (dead ? " اتصال قبلی قطع شده بود؛ دوباره وارد شوید." : "");
+    (dead ? " اتصال قبلی قطع شده بود؛ دوباره وارد شوید." : "") +
+    (SEC_HINT && !(sec.api_id && sec.api_hash) ? " " + SEC_HINT : "");   // فیکس NB-21
   $("#apiIdFields").hidden = !!sec.api_id;    // قابلیت WB-15: Secret هست → فیلد نیاید
   $("#apiHashFields").hidden = !!sec.api_hash;
   $("#phoneFields").hidden = !!sec.phone;
@@ -3778,6 +3978,90 @@ def _selftest():
     finally:
         ts._USERDATA_DEAD = _dead
         del os.environ["TG_API_ID"]
+
+    # فیکس NB-21: خواندن سکرت در کرنل — وضعیت هر سکرت، نام‌های جایگزین، بدون نشت مقدار
+    _SNF = type("SecretNotFoundError", (Exception,), {})
+    _NAE = type("NotebookAccessError", (Exception,), {})
+
+    def _g(name):
+        if name == "TG_API_ID":
+            return " 424242 "
+        if name == "API_HASH":                 # نام جایگزین → زیر نام اصلی پاس داده می‌شود
+            return "h" * 32
+        if name == "TG_2FA_PASSWORD":
+            raise _NAE("off")
+        if name == "TS_ENC_KEY":
+            raise TimeoutError("timed out")
+        raise _SNF(name)
+
+    _vals, _rep = _read_kernel_secrets(_g)
+    eq(_vals, {"TG_API_ID": "424242", "TG_API_HASH": "h" * 32}, "ln.values")
+    eq([_rep[k] for k in ("api_id", "api_hash", "phone", "pwd", "enc_key")],
+       ["ok", "ok", "missing", "no_access", "timeout"], "ln.report")
+    eq("424242" in str(_rep), False, "ln.noleak")
+
+    def _bad(name):
+        raise ValueError("secret-value-should-not-leak")
+
+    _v2, _r2 = _read_kernel_secrets(_bad)
+    eq((_v2, _r2["api_id"]), ({}, "error:ValueError"), "ln.error")
+    eq("secret-value" in str(_r2), False, "ln.error_noleak")
+
+    # فیکس NB-21: در پروسه‌ی جدا userdata.get با AttributeError می‌میرد (نه timeout) —
+    # باید از همان اولین خطا غیرفعال شود و مقدار از env بیاید؛ خطای «سکرت نیست» غیرفعالش نکند
+    import types as _types
+    _saved_mods = {k: sys.modules.get(k) for k in ("google", "google.colab", "google.colab.userdata")}
+    _g_, _c_, _u_ = (_types.ModuleType(n) for n in ("google", "google.colab", "google.colab.userdata"))
+    _c_.userdata, _g_.colab = _u_, _c_
+    sys.modules.update({"google": _g_, "google.colab": _c_, "google.colab.userdata": _u_})
+    _in_colab, _dead2 = ts.IN_COLAB, ts._USERDATA_DEAD
+    os.environ["TG_API_ID"] = "777"
+    try:
+        ts.IN_COLAB = True
+        ts._USERDATA_DEAD = False
+
+        def _snf(name):
+            raise _SNF(name)
+
+        _u_.get = _snf
+        eq(ts.get_secret("api_id"), "777", "dead.env_after_notfound")
+        eq(ts._USERDATA_DEAD, False, "dead.notfound_keeps_userdata")
+
+        def _kernelless(name):
+            raise AttributeError("'NoneType' object has no attribute 'kernel'")
+
+        _u_.get = _kernelless
+        eq(ts.get_secret("api_id"), "777", "dead.env_after_attr")
+        eq(ts._USERDATA_DEAD, True, "dead.attr_disables_userdata")
+
+        # راهنمای /api/state: در Colab بدون TS_WEB_CHILD دلیلِ نرسیدن سکرت گفته می‌شود
+        _wc = os.environ.pop("TS_WEB_CHILD", None)
+        eq(bool(web.test_client().get("/api/state").get_json()["hint"]), True, "state.hint_no_launcher")
+        os.environ["TS_WEB_CHILD"] = "1"
+        eq(web.test_client().get("/api/state").get_json()["hint"], "", "state.hint_launcher")
+        if _wc is None:
+            del os.environ["TS_WEB_CHILD"]
+        else:
+            os.environ["TS_WEB_CHILD"] = _wc
+    finally:
+        ts.IN_COLAB, ts._USERDATA_DEAD = _in_colab, _dead2
+        os.environ.pop("TG_API_ID", None)
+        for _k, _m in _saved_mods.items():
+            if _m is None:
+                sys.modules.pop(_k, None)
+            else:
+                sys.modules[_k] = _m
+        _detect_secrets()
+
+    # فیکس NB-21: چک پورت — آزاد/اشغال (با سوکت شنونده‌ی واقعی)
+    import socket as _s2
+    _ls = _s2.socket()
+    _ls.bind(("127.0.0.1", 0))
+    _ls.listen(1)
+    _busy_port = _ls.getsockname()[1]
+    eq(_port_free(_busy_port), False, "port.busy")
+    _ls.close()
+    eq(_port_free(_busy_port), True, "port.free")
 
     # _valid_api_id / _valid_hash — همان قواعد get_creds موتور (قابلیت WEB-03)
     eq(_valid_api_id("12345"), 12345, "id.ok")
