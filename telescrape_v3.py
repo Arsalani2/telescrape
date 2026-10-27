@@ -992,13 +992,9 @@ async def download(client, m, path, size, th, tag=""):
             w = th.flood(e.seconds)
             notify(t("flood", s=int(w)))
             await nap(w)
-        except RETRY_ERRORS as e:
-            last = e
-            if attempt < 3:
-                await nap(min(BACKOFF_BASE * 2 ** attempt, 40) + random.random())
-        except OSError as e:
+        except RETRY_ERRORS as e:      # NB-02: OSError (incl. disk-full) is caught here first
             if is_disk_full(e):
-                raise DiskLow()
+                raise DiskLow()        # never retry a full disk
             last = e
             if attempt < 3:
                 await nap(min(BACKOFF_BASE * 2 ** attempt, 40) + random.random())
@@ -1123,7 +1119,7 @@ async def scrape(app, client, item, speed, total_hint=None):
                 status_txt = "skipped (media off)"
             elif max_bytes and size > max_bytes:
                 status_txt = f"skipped (too big: {size // MB} MB)"
-            elif os.path.exists(path) and os.path.getsize(path) > 0:
+            elif os.path.exists(path):      # NB-03: even a 0-byte file counts as done (P3-8)
                 status_txt = "already downloaded"
             if status_txt:
                 stats["skipped"] += 1
