@@ -1471,6 +1471,17 @@ async def _disconnect(client):
         await r
 
 
+async def _get_me(client):        # فیکس NB-09: get_me با timeout و retry — hiccup بعد از لاگین دیگر fatal نیست
+    last = None
+    for _ in range(3):
+        try:
+            return await asyncio.wait_for(client.get_me(), 20)
+        except Exception as e:
+            last = e
+            await asyncio.sleep(2)
+    raise last
+
+
 def _cleanup_previous_session():
     """Re-running the Colab cell re-executes this module, so module globals reset and the
     previous client/loop become unreachable. We therefore keep the reference on the sys
@@ -1510,7 +1521,7 @@ def app_main():
     try:
         login(client, phone, pwd2fa)
         app.lock_session(api_id)
-        me = run(client.get_me())
+        me = run(_get_me(client))     # فیکس NB-09
         who = utils.get_display_name(me) or str(me.id)
         say(t("login_ok", name=who))
         say(t("loading"))
