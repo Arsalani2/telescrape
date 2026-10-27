@@ -722,6 +722,16 @@ def api_logout():
         return bad
     if STATE["client"] is None:
         return jsonify({"error": wt("not_ready"), "phase": STATE["phase"]}), 409
+    # فیکس WB-03: job فعال → اول توقف تمیز و تا پایانش صبر (سقف ۳۰ ثانیه)؛ بعد خروج —
+    # log_out وسط اسکرپ، کلاینت را زیر پای coroutine فعال می‌کشید.
+    job = STATE["job"]
+    if job is not None and not job["done"]:
+        ts.STOP.set()
+        deadline = time.time() + 30
+        while not job["done"] and time.time() < deadline:
+            time.sleep(0.25)
+        if not job["done"]:
+            return jsonify({"error": wt("job_running")}), 409
     ok = False                                  # فیکس NB-11: log_out روی شکست False
     try:
         ok = bool(_bg_call(STATE["client"].log_out(), 90))
