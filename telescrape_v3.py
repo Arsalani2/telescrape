@@ -600,7 +600,7 @@ def make_zip(folder, zip_path):
     with zipfile.ZipFile(tmp, "w", allowZip64=True) as zf:
         for root, _, files in os.walk(folder):
             for f in files:
-                if f.endswith(".part") or f == "state.json":
+                if f.endswith((".part", ".tmp")) or f == "state.json":   # فیکس NB-07: *.tmp هم رد شود
                     continue
                 full = os.path.join(root, f)
                 if os.path.islink(full):
