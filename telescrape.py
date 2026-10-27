@@ -3733,6 +3733,10 @@ def _selftest():
     پوشش: ارقام فارسی، ولیدیشن creds، گارد زیپ، چک token، گذارهای ماشین حالت لاگین با کلاینت فیک."""
     import tempfile
 
+    # فیکس NB-19: در Colab ساخت App سعی در mount تعاملی Drive می‌کرد و در پروسه‌ی
+    # جدا (بدون کرنل) AttributeError می‌داد؛ خودتست Drive لازم ندارد.
+    ts.USE_DRIVE = False
+
     ok = fail = 0
 
     def eq(got, want, label):
