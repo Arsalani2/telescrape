@@ -646,20 +646,41 @@ def api_stop():
     return jsonify({"ok": True})
 
 
-@web.route("/api/progress")
-def api_progress():
-    """پیشرفت زنده: PROG (فیلدهای ساختاریافته WEB-02) + درینِ _msgs + نتیجه‌ی job."""
-    msgs = []
+# فیکس WB-05: بافر حلقه‌ای seq‌دار سمت سرور — پیام‌ها دیگر دور ریخته نمی‌شوند
+_MSGS = []
+_MSGS_LOCK = threading.Lock()
+
+
+def _drain_msgs():
+    """انتقال پیام‌های موتور (ts._msgs) به بافر وب با شماره‌ی ترتیبی — بدون گم‌شدن (فیکس WB-05)."""
+    moved = []
     while True:
         try:
-            msgs.append(ts._msgs.popleft())
+            moved.append(ts._msgs.popleft())
         except IndexError:
             break
+    if moved:
+        with _MSGS_LOCK:
+            base = _MSGS[-1][0] if _MSGS else 0
+            _MSGS.extend((base + i, txt) for i, txt in enumerate(moved, 1))
+            del _MSGS[:-200]                 # بافر حلقه‌ای: فقط ۲۰۰ پیام آخر می‌ماند
+    return moved
+
+
+@web.route("/api/progress")
+def api_progress():
+    """پیشرفت زنده: PROG (فیلدهای ساختاریافته WEB-02) + پیام‌های seq‌دار (WB-05) + نتیجه‌ی job."""
+    since = _to_int(request.args.get("since"), 0) or 0
+    _drain_msgs()
+    with _MSGS_LOCK:
+        msgs = [{"seq": s, "text": t} for s, t in _MSGS if s > since]
+        last = _MSGS[-1][0] if _MSGS else since
     with LOCK:
         return jsonify({
             "phase": STATE["phase"],
             "prog": dict(ts.PROG),
             "msgs": msgs,
+            "last_seq": last,
             "job": _job_payload(),
             "result": _res_payload(STATE["last_result"]),
         })
@@ -1199,6 +1220,7 @@ function openChat(id) {
 }
 
 let pollTimer = null;
+let lastSeq = 0;                          // فیکس WB-05: فقط پیام‌های جدیدِ هر poll نمایش می‌یابد
 function showProgress() {
   show("progress");
   if (pollTimer) clearInterval(pollTimer);
@@ -1207,10 +1229,11 @@ function showProgress() {
 }
 
 function poll() {
-  api("/api/progress").then(r => {
+  api("/api/progress" + (lastSeq ? "?since=" + lastSeq : "")).then(r => {
     const d = r.data || {};
     const prog = d.prog || {};
-    (d.msgs || []).slice(0, 3).forEach(m => toast(m, "warn"));
+    (d.msgs || []).forEach(m => toast(m.text || m, "warn"));
+    if (typeof d.last_seq === "number") lastSeq = Math.max(lastSeq, d.last_seq);
     const job = d.job;
     if (job) {
       $("#progChat").textContent = job.chat;
@@ -1509,6 +1532,25 @@ def _selftest():
     eq(r["msgs"], 3, "res.msgs")
     eq(_res_payload({})["empty"], False, "res.defaults")
     eq(_res_payload({})["msgs"], 0, "res.zero")
+
+    # فیکس WB-05: بافر seq‌دار — پیام‌ها گم نمی‌شوند و فیلتر since فقط جدیدها را می‌دهد
+    saved_msgs = list(_MSGS)
+    _MSGS.clear()
+    ts._msgs.clear()
+    try:
+        for m in ("m1", "m2"):
+            ts._msgs.append(m)
+        _drain_msgs()
+        eq([t for _, t in _MSGS], ["m1", "m2"], "msg.drain")
+        ts._msgs.append("m3")
+        _drain_msgs()
+        eq([s for s, _ in _MSGS], [1, 2, 3], "msg.seq")
+        eq([t for s, t in _MSGS if s > 2], ["m3"], "msg.since")
+        eq(_drain_msgs(), [], "msg.empty_drain")
+    finally:
+        _MSGS.clear()
+        _MSGS.extend(saved_msgs)
+        ts._msgs.clear()
 
     # _check_token (نسخه‌ی سخت WEB-06): هدر درست/غلط/غایب
     with web.test_request_context("/", headers={"X-TS-Token": STATE["token"]}):
