@@ -198,9 +198,7 @@ def _zip_path(zdir, name):
     return path
 
 
-def _check_token():
-    # قابلیت WEB-06: نسخه‌ی سخت‌گیرانه در پایین همین فایل جایگزین این تعریف می‌شود
-    return True
+# فیکس WB-11: اسکلت مرده‌ی PAGE (نسخه‌ی اول WEB-01) حذف شد — فقط PAGE کامل پایین فایل معتبر است
 
 
 def _bad_token():
@@ -209,20 +207,8 @@ def _bad_token():
     return jsonify({"error": wt("csrf_bad")}), 403
 
 
-# ────────────────────── صفحه‌ی تک‌فایلی (قابلیت WEB-05 فرانت کامل را جایگزین می‌کند) ──────────────────────
-PAGE = """<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>اسکرپر تلگرام</title>
-</head>
-<body style="font-family:system-ui; padding:24px; text-align:center">
-<p style="font-size:18px">TeleScrape Web — اسکلت آماده است (WEB-01).</p>
-<p>فرانت کامل در WEB-05 اضافه می‌شود؛ API فعلی: <code>/api/state</code></p>
-</body>
-</html>"""
-
+# ────────────────────── صفحه‌ی تک‌فایلی — فرانت کامل در پایین فایل تعریف می‌شود (قابلیت WEB-05) ──────────────────────
+# فیکس WB-11: اسکلت مرده‌ی PAGE حذف شد؛ PAGE کامل در بخش WEB-05 تعریف می‌شود
 
 web = Flask(__name__)
 
@@ -782,7 +768,7 @@ def api_logout():
     return jsonify({"ok": True, "msg": msg})
 
 # ═══════════════ WEB-05: فرانت‌اند تک‌صفحه‌ای فارسی RTL موبایل‌پسند ═══════════════
-#PAGE_FULL
+# فیکس WB-11: مارکر قدیمی جداکننده حذف شد — PAGE از این‌جا تنها تعریفِ صفحه است
 PAGE = r"""<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -1561,7 +1547,7 @@ boot();
 
 def _check_token():
     """نسخه‌ی سخت‌گیرانه — هر POST باید هدر X-TS-Token با token سرور داشته باشد (قابلیت WEB-06).
-    تک‌کاربره و in-memory؛ بدون وابستگی به Flask-WTF. تعریفِ بالا (اسکلت) را جایگزین می‌کند."""
+    تک‌کاربره و in-memory؛ بدون وابستگی به Flask-WTF. فیکس WB-11: این تنها تعریفِ _check_token است."""
     sent = str(request.headers.get("X-TS-Token", ""))
     return _secrets.compare_digest(sent.encode("utf-8", "replace")[:128],
                                    str(STATE["token"]).encode("utf-8"))
