@@ -2893,6 +2893,8 @@ input:focus,select:focus,button:focus-visible,[tabindex]:focus-visible{
   min-height:56px;border:0;border-bottom:1px solid var(--line);background:none;
   color:var(--text);font:inherit;text-align:right;padding:8px 4px;cursor:pointer}
 .list-item b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list-item .go{flex:none;font-size:12px;font-weight:700;color:var(--primary);
+  border:1px solid var(--primary);border-radius:999px;padding:4px 10px;white-space:nowrap}
 .badge{font-size:12px;color:var(--muted);flex:none}
 .skeleton{height:56px;border-radius:10px;margin:8px 0;
   background:linear-gradient(90deg,var(--line) 25%,var(--surface) 50%,var(--line) 75%);
@@ -3025,6 +3027,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
     <button class="tab" role="tab" data-cat="private" aria-selected="false">شخصی</button>
     <button class="tab" role="tab" data-cat="bot" aria-selected="false">ربات</button>
   </div>
+  <p class="muted">برای شروع اسکرپ، روی هر چت بزنید.</p>
   <label for="q" class="visually-hidden">جست‌وجو</label>
   <input id="q" type="search" placeholder="جست‌وجو…" aria-describedby="listState">
   <form id="resolveForm" novalidate>
@@ -3327,8 +3330,8 @@ function loadList(page, refresh) {
       items.forEach(it => {
         const b = document.createElement("button");
         b.className = "list-item";
-        b.innerHTML = "<b>" + escapeHtml(it.name) + "</b>" +
-          "<span class='badge num' dir='ltr'>" + escapeHtml(String(it.id)) + "</span>";
+        b.innerHTML = "<b>" + escapeHtml(it.name) + "</b>" +   // فیکس NB-16: نشان اسکرپ روی هر ردیف
+          "<span class='go'>اسکرپ ›</span>";
         b.onclick = () => openChat(it.id);
         $("#list").appendChild(b);
       });
