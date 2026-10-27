@@ -674,7 +674,11 @@ def api_progress():
 
 @web.route("/api/zip")
 def api_zip():
-    """دانلود زیپ — فقط فایل داخل app.zips با گارد realpath (قابلیت WEB-04)."""
+    """دانلود زیپ — فقط فایل داخل app.zips با گارد realpath (قابلیت WEB-04).
+    فیکس WB-09: GET حساس است؛ بدون token (هدر یا ?t=) → 403."""
+    bad = _bad_token()
+    if bad:
+        return bad
     r = _require_ready()
     if r:
         return r
@@ -1329,7 +1333,8 @@ function showResult(res) {
   const zl = $("#zipLink");
   if (res.zip_name) {
     zl.hidden = false;
-    zl.href = "/api/zip?name=" + encodeURIComponent(res.zip_name);
+    zl.href = "/api/zip?name=" + encodeURIComponent(res.zip_name) +
+              "&t=" + encodeURIComponent(TOKEN);   // فیکس WB-09: token در لینک دانلود
     zl.setAttribute("download", res.zip_name);
   } else { zl.hidden = true; }
   show("result");
@@ -1557,6 +1562,9 @@ def _check_token():
     """نسخه‌ی سخت‌گیرانه — هر POST باید هدر X-TS-Token با token سرور داشته باشد (قابلیت WEB-06).
     تک‌کاربره و in-memory؛ بدون وابستگی به Flask-WTF. فیکس WB-11: این تنها تعریفِ _check_token است."""
     sent = str(request.headers.get("X-TS-Token", ""))
+    # فیکس WB-09: لینک‌های دانلود GETند و هدر نمی‌گذارند → پشتیبان پارامتر ?t=
+    if not sent:
+        sent = str(request.args.get("t", ""))
     return _secrets.compare_digest(sent.encode("utf-8", "replace")[:128],
                                    str(STATE["token"]).encode("utf-8"))
 
@@ -1666,6 +1674,10 @@ def _selftest():
         eq(_check_token(), False, "token.bad")
     with web.test_request_context("/"):
         eq(_check_token(), False, "token.missing")
+    with web.test_request_context("/?t=" + STATE["token"]):   # فیکس WB-09: پشتیبان ?t=
+        eq(_check_token(), True, "token.query")
+    with web.test_request_context("/?t=deadbeef"):
+        eq(_check_token(), False, "token.query_bad")
 
     # ماشین حالت لاگین با کلاینت فیک — بدون شبکه (قابلیت WEB-03/WEB-07)
     class _FakeMe:
