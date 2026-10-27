@@ -62,6 +62,38 @@
 
 ---
 
+## 📱 اجرای موبایلی از Colab (حالت وب)
+
+نوتبوک و حالت ترمینال روی گوشی عملاً قابل استفاده نیستند. [`telescrape_web.py`](telescrape_web.py) یک رابط وب فارسی/RTL و موبایل‌پسند را از داخل خودِ Colab سرو می‌کند — بدون تونل عمومی؛ صفحه با پروکسی داخلیِ احراز‌هویت‌شده‌ی Colab روی گوشی باز می‌شود و فقط برای حساب Google شما قابل دسترسی است.
+
+سه سلول زیر را به‌ترتیب اجرا کنید:
+
+**سلول ۱ — دانلود فایل‌ها:**
+
+```python
+!wget -q https://raw.githubusercontent.com/Personalmo/telescrape/main/telescrape_v3.py
+!wget -q https://raw.githubusercontent.com/Personalmo/telescrape/main/telescrape_web.py
+```
+
+**سلول ۲ — اجرای وب‌سرور در پس‌زمینه** (پورت پیش‌فرض ۸۰۰۰؛ با `--no-drive` خروجی به‌جای Drive در دیسک موقت می‌ماند):
+
+```python
+!nohup python telescrape_web.py --port 8000 >/dev/null 2>&1 &
+```
+
+**سلول ۳ — باز کردن رابط روی گوشی:**
+
+```python
+from google.colab import output
+output.serve_kernel_port_as_window(8000)
+```
+
+> 💡 پس از ورود موفق، سشن رمزنگاری‌شده روی Drive بکاپ می‌شود؛ ران‌تایمِ قطع‌شده دوباره بدون کد پیامک وارد می‌شود.
+>
+> 🧪 تست سلامت لایه‌ی وب بدون تلگرام: `!python telescrape_web.py --selftest`
+
+---
+
 ## 💻 اجرا در ترمینال (لینوکس / مک / ویندوز)
 
 ```bash

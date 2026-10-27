@@ -40,3 +40,14 @@ PROJECT_HANDOFF.txt — TeleScrape
 ۷) قوانین
 - قبل از هر کار: docs/Instructions for Ai.md را بخوانید و ادعاهای این فایل را با کد واقعی تطبیق دهید.
 - Update.md فقط-افزودنی است. هیچ secret (API ID/Hash، شماره، session، خروجی چت) را در ریپازیتوری قرار ندهید.
+
+۸) نشست ۲۰۲۶-۱۰-۲۷ — قابلیت حالت وب موبایل‌پسند (WEB-01…WEB-07، موج ۷ تا ۱۰)
+- فایل جدید telescrape_web.py: لایه‌ی وبِ تک‌فایلی Flask روی موتورِ دست‌نخورده (import telescrape_v3 as ts)؛ کارهای تلگرام فقط روی bg loop موتور با asyncio.run_coroutine_threadsafe؛ در لایه‌ی وب هرگز ask()/getpass()/input() صدا زده نمی‌شود.
+- تنها تغییر موتور: hook پیشرفت ساختاریافته‌ی PROG (WEB-02، کامیت d1970fae)؛ حالت ترمینال بی‌تغییر. کامیت‌های لایه‌ی وب: WEB-01 9baebf40، WEB-03 b3e1fe48، WEB-04 cfefcefb، WEB-05 425cb65f، WEB-06 3bba9a1d، WEB-07 (همین کامیت).
+- لاگین REST مرحله‌ای: start/code/resend/2fa/backup-pwd؛ FloodWait → {wait} با شمارش معکوس UI؛ restore قبل از کلاینت + بکاپ بعد از ورود (NB-12)؛ _get_me بعد از ورود.
+- API: state، dialogs (فیلتر/صفحه‌بندی با _match؛ JSON فقط id/name/cat/username)، resolve، chat count، start (تک‌job؛ وگرنه 409)، stop (idempotent)، progress (poll 1.5s + درین _msgs)، zip (گارد realpath ⊆ app.zips)، settings، logout (منطق NB-11/13).
+- فرانت تک‌صفحه‌ای فارسی RTL داخل همان فایل (بدون پوشه‌ی templates): مراحل setup→login→main→progress→result، dark mode، Vazirmatn + fallback، ارقام فارسی نرمال قبل POST، دکمه‌های ≥44px، سه حالت loading/empty/error.
+- سخت‌افزاری: token CSRF ساده‌ی in-memory (هدر X-TS-Token + compare_digest)، رمزها type=password + autocomplete=off، هیچ secret در پاسخ/لاگ، 404/500 تمیز، دابل‌استارت ممنوع.
+- --selftest لایه‌ی وب: هلپرهای خالص + گذارهای ماشین حالت با کلاینت فیک. ⚠️ در محیط ایجنتِ این نشست پایتون موجود نبود؛ هر دو selftest (موتور + وب) باید در Colab سبز شوند.
+- چک‌لیست تست دستی گوشی با کاربر (طبق WEB-07) هنوز باز: لاگین → بکاپ → قطع ران‌تایم → اجرای دوباره بدون کد → اسکرپ واقعی چت کوچک → توقف → دانلود زیپ.
+- ریلیس/تگ فقط با دستور صریح کاربر (ریپو CI ندارد).

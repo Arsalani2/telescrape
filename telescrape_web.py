@@ -1399,5 +1399,128 @@ def _server_error(e):
     return PAGE, 500
 
 
+# ═══════════════ WEB-07: --selftest (هلپرهای خالص، بدون شبکه) ═══════════════
+
+def _selftest():
+    """تست دودِ هلپرهای خالصِ لایه‌ی وب — python telescrape_web.py --selftest
+    پوشش: ارقام فارسی، ولیدیشن creds، گارد زیپ، چک token، گذارهای ماشین حالت لاگین با کلاینت فیک."""
+    import tempfile
+
+    ok = fail = 0
+
+    def eq(got, want, label):
+        nonlocal ok, fail
+        if got == want:
+            ok += 1
+        else:
+            fail += 1
+            print(f"FAIL {label}: got {got!r}, want {want!r}")
+
+    # _to_int: ارقام فارسی/عربی مثل ورودی موبایل
+    eq(_to_int("۱۲۳"), 123, "int.fa")
+    eq(_to_int("٤٥"), 45, "int.ar")
+    eq(_to_int(" 42 "), 42, "int.space")
+    eq(_to_int("x", 7), 7, "int.fallback")
+    eq(_to_int(None, 9), 9, "int.none")
+
+    # _valid_api_id / _valid_hash — همان قواعد get_creds موتور (قابلیت WEB-03)
+    eq(_valid_api_id("12345"), 12345, "id.ok")
+    eq(_valid_api_id("۰"), None, "id.zero")
+    eq(_valid_api_id("abc"), None, "id.nan")
+    h = "0123456789abcdef0123456789abcdef"
+    eq(_valid_hash(h), h, "hash.ok")
+    eq(_valid_hash(h.upper()), h.upper(), "hash.upper")
+    eq(_valid_hash("short"), None, "hash.short")
+    eq(_valid_hash(None), None, "hash.none")
+    eq(_valid_hash("  " + h + "  "), h, "hash.strip")
+
+    # _zip_path: گارد زیپ — فقط نامِ ساده داخل zdir (قابلیت WEB-04/WEB-06)
+    with tempfile.TemporaryDirectory() as tmp:
+        eq(_zip_path(tmp, "chat_1_1_2.zip"),
+           os.path.join(os.path.realpath(tmp), "chat_1_1_2.zip"), "zip.ok")
+        eq(_zip_path(tmp, ""), None, "zip.empty")
+        eq(_zip_path(tmp, None), None, "zip.none")
+        eq(_zip_path(tmp, "../etc/passwd"),
+           os.path.join(os.path.realpath(tmp), "passwd"), "zip.basename")
+        out = os.path.join(tmp, "outside.zip")
+        with open(out, "w") as f:
+            f.write("x")
+        link = os.path.join(tmp, "link.zip")
+        os.symlink(out, link)                  # symlink بیرون‌نما → رد با realpath
+        eq(_zip_path(tmp, "link.zip"), None, "zip.symlink")
+
+    # _res_payload: شکل امنِ نتیجه برای JSON (قابلیت WEB-04)
+    eq(_res_payload(None), None, "res.none")
+    r = _res_payload({"folder": "/f", "zip": "/f/x.zip", "empty": False,
+                      "interrupted": False, "reason": "", "msgs": 3,
+                      "files": 2, "skipped": 1, "errors": 0})
+    eq(r["zip_name"], "x.zip", "res.zipname")
+    eq(r["msgs"], 3, "res.msgs")
+    eq(_res_payload({})["empty"], False, "res.defaults")
+    eq(_res_payload({})["msgs"], 0, "res.zero")
+
+    # _check_token (نسخه‌ی سخت WEB-06): هدر درست/غلط/غایب
+    with web.test_request_context("/", headers={"X-TS-Token": STATE["token"]}):
+        eq(_check_token(), True, "token.ok")
+    with web.test_request_context("/", headers={"X-TS-Token": "deadbeef"}):
+        eq(_check_token(), False, "token.bad")
+    with web.test_request_context("/"):
+        eq(_check_token(), False, "token.missing")
+
+    # ماشین حالت لاگین با کلاینت فیک — بدون شبکه (قابلیت WEB-03/WEB-07)
+    class _FakeMe:
+        id = 42
+
+    class _FakeClient:
+        def __init__(self, authorized):
+            self.authorized = authorized
+            self.calls = []
+
+        async def connect(self):
+            self.calls.append("connect")
+
+        async def is_user_authorized(self):
+            return self.authorized
+
+        async def send_code_request(self, phone):
+            self.calls.append(("code", phone))
+
+        async def get_me(self):
+            return _FakeMe()
+
+        async def iter_dialogs(self):
+            return
+            yield
+
+    saved = dict(STATE)
+    oldcwd = os.getcwd()
+    try:
+        os.chdir(tempfile.mkdtemp())            # App() پوشه‌های محلی می‌سازد
+        STATE["app"] = ts.App()
+        STATE["api_id"] = 1
+        STATE["phone"] = "+989121234567"
+        with web.app_context():
+            fc = _FakeClient(True)             # سشن معتبر → مستقیم ready
+            STATE["client"] = fc
+            STATE["phase"] = "setup"
+            rv = _connect_and_flow()
+            eq(rv.get_json()["phase"], "ready", "flow.authorized")
+            eq(STATE["phase"], "ready", "flow.phase_ready")
+            fc2 = _FakeClient(False)           # لاگین تازه → send_code → need_code
+            STATE["client"] = fc2
+            STATE["phase"] = "setup"
+            rv2 = _connect_and_flow()
+            eq(rv2.get_json()["phase"], "need_code", "flow.fresh")
+            eq(STATE["phase"], "need_code", "flow.phase_code")
+            eq(fc2.calls[-1], ("code", "+989121234567"), "flow.send")
+    finally:
+        os.chdir(oldcwd)
+        STATE.clear()
+        STATE.update(saved)
+
+    print(f"self-test: {ok} passed, {fail} failed")
+    raise SystemExit(1 if fail else 0)
+
+
 if __name__ == "__main__":
     main()
