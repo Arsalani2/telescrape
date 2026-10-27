@@ -2943,16 +2943,23 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
     <p class="muted" id="secHint"></p>
     <form id="setupForm" novalidate>
       <div id="credFields">
-        <label for="api_id">API ID</label>
-        <input id="api_id" inputmode="numeric" autocomplete="off" dir="ltr" aria-describedby="err_api_id">
-        <p class="err" id="err_api_id" aria-live="polite"></p>
-        <label for="api_hash">API Hash</label>
-        <input id="api_hash" type="password" autocomplete="off" dir="ltr" aria-describedby="err_api_hash">
-        <p class="err" id="err_api_hash" aria-live="polite"></p>
+        <!-- قابلیت WB-15: هر فیلد جداگانه مخفی می‌شود اگر Secret همان فیلد موجود باشد -->
+        <div id="apiIdFields">
+          <label for="api_id">API ID</label>
+          <input id="api_id" inputmode="numeric" autocomplete="off" dir="ltr" aria-describedby="err_api_id">
+          <p class="err" id="err_api_id" aria-live="polite"></p>
+        </div>
+        <div id="apiHashFields">
+          <label for="api_hash">API Hash</label>
+          <input id="api_hash" type="password" autocomplete="off" dir="ltr" aria-describedby="err_api_hash">
+          <p class="err" id="err_api_hash" aria-live="polite"></p>
+        </div>
       </div>
-      <label for="phone">شماره تلگرام</label>
-      <input id="phone" type="tel" inputmode="tel" placeholder="+98912..." autocomplete="off" dir="ltr" aria-describedby="err_phone">
-      <p class="err" id="err_phone" aria-live="polite"></p>
+      <div id="phoneFields">
+        <label for="phone">شماره تلگرام</label>
+        <input id="phone" type="tel" inputmode="tel" placeholder="+98912..." autocomplete="off" dir="ltr" aria-describedby="err_phone">
+        <p class="err" id="err_phone" aria-live="polite"></p>
+      </div>
       <details id="encWrap">
         <summary>رمز بکاپ سشن (اختیاری — اگر Secret با نام TS_ENC_KEY ندارید)</summary>
         <label for="enc_pw">رمز بکاپ</label>
@@ -2978,11 +2985,13 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
       <button class="btn full" id="codeBtn" type="submit">بررسی کد</button>
     </form>
     <form id="twoFaForm" hidden novalidate>
-      <label for="password">رمز دو مرحله‌ای</label>
-      <input id="password" type="password" autocomplete="off" aria-describedby="err_password">
-      <p class="err" id="err_password" aria-live="polite"></p>
-      <!-- فیکس WB-07: راهنمای فقط-خواندنی وقتی Secret TG_2FA_PASSWORD موجود است -->
-      <p class="muted" id="pwdHint" hidden>رمز از Secret TG_2FA_PASSWORD خوانده می‌شود؛ خالی بگذارید تا از Secret استفاده شود</p>
+      <div id="pwdFields">
+        <label for="password">رمز دو مرحله‌ای</label>
+        <input id="password" type="password" autocomplete="off" aria-describedby="err_password">
+        <p class="err" id="err_password" aria-live="polite"></p>
+      </div>
+      <!-- قابلیت WB-15: اگر Secret TG_2FA_PASSWORD موجود باشد فیلد مخفی می‌شود و رمز خودکار از Secret ارسال می‌شود -->
+      <p class="muted" id="pwdHint" hidden>رمز از Secret TG_2FA_PASSWORD خوانده می‌شود؛ فقط دکمه‌ی ورود را بزنید.</p>
       <button class="btn full" type="submit">ورود</button>
     </form>
     <button class="btn ghost full" id="resendBtn">ارسال دوباره‌ی کد</button>
@@ -3165,7 +3174,17 @@ function toast(msg, cls) {
   setTimeout(() => t.remove(), 5000);
 }
 
+// قابلیت WB-15: فیلدِ مخفی‌شده به‌خاطر Secret، اگر خطا به آن بر بخورد آشکار می‌شود تا کاربر دستی وارد کند
+const FIELD_GROUPS = { api_id: "#apiIdFields", api_hash: "#apiHashFields", phone: "#phoneFields",
+                       enc_pw: "#encWrap", password: "#pwdFields" };
 function setErr(id, msg) {
+  const g = FIELD_GROUPS[id];
+  if (msg && g && $(g)) {
+    $(g).hidden = false;
+    const inp = $(g).querySelector("input");
+    if (inp) inp.focus();
+    if (id === "password") $("#pwdHint").hidden = true;
+  }
   const el = $("#err_" + id);
   el.textContent = msg || "";
   el.classList.toggle("show", !!msg);
@@ -3234,7 +3253,9 @@ function showSetup(sec, dead) {
      : "API ID و Hash از my.telegram.org لازم است. ") +
     (sec.phone ? "شماره از Secret خوانده می‌شود." : "شماره را با کد کشور وارد کنید.") +
     (dead ? " اتصال قبلی قطع شده بود؛ دوباره وارد شوید." : "");
-  $("#credFields").hidden = !!(sec.api_id && sec.api_hash);
+  $("#apiIdFields").hidden = !!sec.api_id;    // قابلیت WB-15: Secret هست → فیلد نیاید
+  $("#apiHashFields").hidden = !!sec.api_hash;
+  $("#phoneFields").hidden = !!sec.phone;
   $("#encWrap").hidden = !!sec.enc_key;
   show("setup");
 }
@@ -3245,10 +3266,12 @@ function showLogin(phase) {
   $("#loginTitle").textContent = two ? "رمز دو مرحله‌ای" : "کد تلگرام";
   $("#codeForm").hidden = two;
   $("#twoFaForm").hidden = !two;
-  $("#pwdHint").hidden = !(two && SECRETS.pwd);   // فیکس WB-07
+  const secretPwd = !!(two && SECRETS.pwd);       // قابلیت WB-15: Secret هست → فیلد رمز نیاید
+  $("#pwdFields").hidden = secretPwd;
+  $("#pwdHint").hidden = !secretPwd;
   $("#resendBtn").hidden = two;
   show("login");
-  (two ? $("#password") : $("#code")).focus();
+  if (!secretPwd) (two ? $("#password") : $("#code")).focus();
 }
 
 function showMain() {
