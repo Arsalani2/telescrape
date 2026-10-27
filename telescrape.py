@@ -2281,6 +2281,17 @@ def main():
     # فیکس NB-15 (پیگیری): web.log باید بگوید کدام سکرت‌ها به سرور رسیده (فقط نام‌ها)
     _got = [k for k, v in STATE["secrets"].items() if v]
     print("سکرت‌های تشخیص‌داده‌شده:", _got or "هیچ — سکرت‌ها پاس نشده‌اند؛ سلول لانچر COLAB.md را اجرا کنید")
+    # فیکس NB-20: پورتِ اشغاری یعنی پروسه‌ی قدیمی (بدون سکرتِ تازه) دارد سرو می‌دهد
+    import socket as _sock
+    _probe = _sock.socket()
+    try:
+        _probe.bind(("0.0.0.0", args.port))
+        _probe.close()
+    except OSError:
+        _probe.close()
+        print(f"⛔ پورت {args.port} اشغال است — احتمالاً پروسه‌ی قدیمی روی همان پورت سرویس می‌دهد و سکرت‌ها به آن نرسیده‌اند.")
+        print("   در یک سلولِ کرنل اجرا کنید: !pkill -f telescrape.py — بعد دوباره سلول لانچر COLAB.md.")
+        raise SystemExit(1)
     print(f"TeleScrape Web listening on 0.0.0.0:{args.port}")
     print("برای باز کردن روی گوشی، در یک سلولِ کرنل اجرا کنید (proxyPort به‌جای تابع منسوخ‌شده):")
     print("    from google.colab import output")
