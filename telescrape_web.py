@@ -1318,15 +1318,20 @@ function openChat(id) {
 
 let pollTimer = null;
 let lastSeq = 0;                          // فیکس WB-05: فقط پیام‌های جدیدِ هر poll نمایش می‌یابد
+let pollErrs = 0;                         // فیکس WB-12: شمارنده‌ی خطاهای متوالی poll
 function showProgress() {
   show("progress");
   if (pollTimer) clearInterval(pollTimer);
+  const stale = $("#pollRetryBtn");             // فیکس WB-12: دکمه‌ی تلاش دوباره‌ی مانده
+  if (stale) stale.remove();
+  pollErrs = 0;
   pollTimer = setInterval(poll, 1500);
   poll();
 }
 
 function poll() {
   api("/api/progress" + (lastSeq ? "?since=" + lastSeq : "")).then(r => {
+    pollErrs = 0;                          // فیکس WB-12: پاسخ موفق → شمارنده صفر
     const d = r.data || {};
     const prog = d.prog || {};
     (d.msgs || []).forEach(m => toast(m.text || m, "warn"));
@@ -1355,7 +1360,20 @@ function poll() {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       showSetup({}, true);
     }
-  }).catch(() => {});
+  }).catch(() => {                         // فیکس WB-12: خطای شبکه دیگر بی‌صدا قورت نمی‌رود
+    pollErrs += 1;
+    if (pollErrs < 3) return;              // تا ۲ خطای پیاپی تحمل می‌شود
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    toast("ارتباط با سرور قطع شد؛ اینترنت یا اجرای Colab را بررسی کنید.", "err");
+    $("#phaseNote").textContent = "ارتباط با سرور قطع شد؛ برای ادامه تلاش دوباره کنید.";
+    if ($("#pollRetryBtn")) return;
+    const btn = document.createElement("button");
+    btn.id = "pollRetryBtn";
+    btn.className = "btn ghost full";
+    btn.textContent = "تلاش دوباره";
+    btn.addEventListener("click", () => { btn.remove(); showProgress(); });
+    $("#phaseNote").parentNode.appendChild(btn);
+  });
 }
 
 function showResult(res) {
