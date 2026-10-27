@@ -451,6 +451,9 @@ def api_login_2fa():
         return jsonify({"error": wt("wrong_phase"), "phase": STATE["phase"]}), 409
     pw = str((request.get_json(silent=True) or {}).get("password") or "")
     if not pw:
+        # فیکس WB-07: ورودی خالی → رمز از Secret TG_2FA_PASSWORD خوانده می‌شود
+        pw = str(ts.get_secret("pwd") or "")
+    if not pw:
         return jsonify({"error": wt("need_password"), "field": "password"}), 400
     try:
         _bg_call(STATE["client"].sign_in(password=pw), 90)
@@ -934,6 +937,8 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
       <label for="password">رمز دو مرحله‌ای</label>
       <input id="password" type="password" autocomplete="off" aria-describedby="err_password">
       <p class="err" id="err_password" aria-live="polite"></p>
+      <!-- فیکس WB-07: راهنمای فقط-خواندنی وقتی Secret TG_2FA_PASSWORD موجود است -->
+      <p class="muted" id="pwdHint" hidden>رمز از Secret TG_2FA_PASSWORD خوانده می‌شود؛ خالی بگذارید تا از Secret استفاده شود</p>
       <button class="btn full" type="submit">ورود</button>
     </form>
     <button class="btn ghost full" id="resendBtn">ارسال دوباره‌ی کد</button>
@@ -1084,6 +1089,7 @@ const norm = s => String(s ?? "").replace(/[۰-۹٠-٩]/g, c => FD[c] ?? c);
 const FA = "۰۱۲۳۴۵۶۷۸۹";
 const fa = n => String(n ?? "").replace(/\d/g, d => FA[+d]);
 let TOKEN = "";
+let SECRETS = {};                        // فیکس WB-07: وجود Secretها برای راهنمای رمز 2FA
 
 async function api(path, body, method) {
   const opt = { method: method || (body ? "POST" : "GET"),
@@ -1159,6 +1165,7 @@ function boot() {
     TOKEN = (r.data && r.data.token) || "";
     const p = (r.data && r.data.phase) || "setup";
     const sec = (r.data && r.data.secrets) || {};
+    SECRETS = sec;                       // فیکس WB-07: بعد از بوت در دسترس showLogin
     if (p === "ready") showMain();
     else if (p === "need_code" || p === "need_2fa") showLogin(p);
     else showSetup(sec, p === "need_login");
@@ -1183,6 +1190,7 @@ function showLogin(phase) {
   $("#loginTitle").textContent = two ? "رمز دو مرحله‌ای" : "کد تلگرام";
   $("#codeForm").hidden = two;
   $("#twoFaForm").hidden = !two;
+  $("#pwdHint").hidden = !(two && SECRETS.pwd);   // فیکس WB-07
   $("#resendBtn").hidden = two;
   show("login");
   (two ? $("#password") : $("#code")).focus();
