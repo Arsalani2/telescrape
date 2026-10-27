@@ -1067,6 +1067,7 @@ async def scrape(app, client, item, speed, total_hint=None):
     if total == 0 and not resume_id:
         res["empty"] = True
         return res
+    total = max(1, total)              # فیکس NB-08: گارد تقسیم — شمارش ۰ ولی resume در جریان
 
     async def author_of(m):
         sid = m.sender_id
