@@ -598,11 +598,22 @@ DEFAULT_EXT = {"Photo": ".jpg", "Voice": ".ogg", "Music": ".mp3", "Video": ".mp4
                "VideoMessage": ".mp4", "GIF": ".mp4", "Sticker": ".webp", "File": ""}
 
 
+# فیکس NB-15: پسوندِ پیام از داده‌ی ریموت می‌آید -> فقط allowlist اعتماد می‌شود؛
+# ناشناس‌ها به default همان kind برمی‌گردند (selftest: ext.untrusted)
+SAFE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".svg", ".ico",
+             ".mp4", ".mkv", ".mov", ".avi", ".webm", ".3gp",
+             ".mp3", ".m4a", ".ogg", ".opus", ".wav", ".flac", ".aac",
+             ".pdf", ".txt", ".csv", ".json", ".html", ".htm", ".xml",
+             ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".rtf",
+             ".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".apk",
+             ".ttf", ".otf", ".epub", ".mobi"}
+
+
 def safe_ext(ext, kind):
     """The extension comes from remote data -> never trust it inside a path."""
-    ext = str(ext or "")
-    if not re.fullmatch(r"\.[A-Za-z0-9]{1,8}", ext):
-        ext = DEFAULT_EXT.get(kind, "")
+    ext = str(ext or "").lower()
+    if ext not in SAFE_EXTS:
+        return DEFAULT_EXT.get(kind, "")
     return ext
 
 
