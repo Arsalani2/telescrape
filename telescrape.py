@@ -690,17 +690,24 @@ def folder_for(exports, name, pid):
 
 
 # ───────────────────────────── secrets / credentials ─────────────────────────────
+# فیکس NB-15: google.colab.userdata فقط در پروسه‌ی کرنلِ نوت‌بوک جواب می‌دهد؛ در
+# پروسه‌ی جدا (nohup python ...) همیشه timeout می‌دهد و هر فراخوانی را کند می‌کند.
+# بعد از اولین timeout دیگر userdata امتحان نمی‌شود (فقط env).
+_USERDATA_DEAD = False
+
+
 def get_secret(key):
     """Colab Secret first, then environment variable. Returns (value or None)."""
     for name in SECRET_NAMES[key]:
-        if IN_COLAB:
+        if IN_COLAB and not _USERDATA_DEAD:          # فیکس NB-15
             try:
                 from google.colab import userdata
                 v = userdata.get(name)
                 if v:
                     return str(v).strip()
-            except Exception:
-                pass
+            except Exception as e:                   # فیکس NB-15: timeout ⇒ از این پس فقط env
+                if "timed out" in str(e).lower() or type(e).__name__ == "TimeoutException":
+                    globals()["_USERDATA_DEAD"] = True
         v = os.environ.get(name)
         if v and v.strip():
             return v.strip()
@@ -2211,6 +2218,7 @@ def index():
 @web.route("/api/state")
 def api_state():
     """فاز فعلی + token CSRF — پایه‌ی بوت فرانت (قابلیت WEB-01)."""
+    _detect_secrets()          # فیکس NB-15: تشخیص تازه در هر بوتِ صفحه (مسیر env ارزان است)
     with LOCK:
         return jsonify({
             "phase": STATE["phase"],
@@ -2265,6 +2273,10 @@ def main():
         STATE["app"] = ts.App()     # چون USE_DRIVE فقط با درایوِ ازپیش‌ماونت True می‌ماند، mount تعاملی در کار نیست
     except Exception as e:
         print(f"⚠️ ساخت App ناموفق بود ({ts.short_err(e)})؛ در اولین درخواست دوباره تلاش می‌شود.")
+    # فیکس NB-15: سکرت‌ها را سلول لانچر COLAB.md از کرنل خوانده و به‌صورت env پاس
+    # داده است؛ در پروسه‌ی جدا userdata.get فقط timeout می‌دهد → بی‌اثرش می‌کنیم
+    if os.environ.get("TS_WEB_CHILD"):
+        ts._USERDATA_DEAD = True
     _detect_secrets()
     print(f"TeleScrape Web listening on 0.0.0.0:{args.port}")
     print("برای باز کردن روی گوشی، در یک سلولِ کرنل اجرا کنید (proxyPort به‌جای تابع منسوخ‌شده):")
@@ -3729,6 +3741,17 @@ def _selftest():
 
     # فیکس WB-01: پرچم IN_COLAB موتور باید با تشخیص واقعی هم‌خوان بماند
     eq(ts.IN_COLAB, _is_colab(), "colab.flagsync")
+
+    # فیکس NB-15: در پروسه‌ی جدا سکرت از env خوانده می‌شود (userdata غیرفعال)
+    os.environ["TG_API_ID"] = "424242"
+    _dead = ts._USERDATA_DEAD
+    ts._USERDATA_DEAD = True
+    try:
+        eq(ts.get_secret("api_id"), "424242", "sec.env")
+        eq(ts.get_secret("phone"), None, "sec.env_missing")
+    finally:
+        ts._USERDATA_DEAD = _dead
+        del os.environ["TG_API_ID"]
 
     # _valid_api_id / _valid_hash — همان قواعد get_creds موتور (قابلیت WEB-03)
     eq(_valid_api_id("12345"), 12345, "id.ok")
