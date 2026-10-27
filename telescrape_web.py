@@ -34,6 +34,22 @@ from flask import Flask, jsonify, request, send_file
 # قابلیت WEB-01: خروجی وب باید روی Drive بماند — پیش‌فرضِ False موتور override می‌شود
 ts.USE_DRIVE = True
 
+
+# فیکس WB-01: اجرای وب با `!python` پروسه‌ی جدیدی است؛ IN_COLAB موتور
+# ("google.colab" in sys.modules) در آن False می‌شود → Secretها/Drive/بکاپ سشن
+# خاموش بودند. تشخیص واقعی + override فقط در لایه‌ی وب (موتور دست‌نخورده):
+def _is_colab():
+    """تشخیص واقعی Colab — حتی داخل پروسه‌ی جدا (nohup python ...)."""
+    try:
+        from google.colab import userdata  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+if _is_colab():
+    ts.IN_COLAB = True
+
 # ────────────────────── پیام‌های دوزبانه‌ی لایه‌ی وب (قاعده ۴) ──────────────────────
 W = {
     "fa": {
@@ -1429,6 +1445,9 @@ def _selftest():
     eq(_to_int(" 42 "), 42, "int.space")
     eq(_to_int("x", 7), 7, "int.fallback")
     eq(_to_int(None, 9), 9, "int.none")
+
+    # فیکس WB-01: پرچم IN_COLAB موتور باید با تشخیص واقعی هم‌خوان بماند
+    eq(ts.IN_COLAB, _is_colab(), "colab.flagsync")
 
     # _valid_api_id / _valid_hash — همان قواعد get_creds موتور (قابلیت WEB-03)
     eq(_valid_api_id("12345"), 12345, "id.ok")
