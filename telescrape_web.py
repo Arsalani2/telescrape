@@ -176,8 +176,14 @@ def _zip_path(zdir, name):
     if not name:
         return None
     zdir = os.path.realpath(zdir)
-    path = os.path.realpath(os.path.join(zdir, name))
-    return path if os.path.dirname(path) == zdir else None
+    direct = os.path.join(zdir, name)
+    path = os.path.realpath(direct)
+    if os.path.dirname(path) != zdir:
+        return None
+    # فیکس WEB-08: symlink داخل zips رد می‌شود — هدفش هرجا باشد، فقط فایل واقعی سرو می‌شود
+    if os.path.islink(direct):
+        return None
+    return path
 
 
 def _check_token():
@@ -469,7 +475,8 @@ def _find_item(cid):
 
 def _res_payload(res):
     """نتیجه‌ی scrape برای JSON — فقط فیلدهای امن (قابلیت WEB-04)."""
-    if not res:
+    # فیکس WEB-08: dict خالی هم payload پیش‌فرض برمی‌گرداند؛ فقط None خودش None است
+    if res is None:
         return None
     z = res.get("zip")
     return {"folder": res.get("folder"), "zip": z,
