@@ -256,5 +256,197 @@ def main():
     web.run(host="0.0.0.0", port=args.port, threaded=True)
 
 
+# ═══════════════ WEB-03: ماشین حالت لاگین گام‌به‌گام (REST) ═══════════════
+
+def _get_app():
+    """App موتور — mount Drive در Colab (USE_DRIVE=True)؛ فقط بار اول ساخته می‌شود."""
+    if STATE["app"] is None:
+        STATE["app"] = ts.App()
+    return STATE["app"]
+
+
+def _bk_active():
+    """بکاپ سشن فقط در Colab + Drive + cryptography — همان NB-12، بدون say() (قابلیت WEB-03)."""
+    return bool(ts.SESSION_BACKUP and ts.IN_COLAB and ts.USE_DRIVE and ts.HAS_CRYPTO)
+
+
+def _finish_login():
+    """بعد از ورود: _get_me (NB-09) → بکاپ اگر restore نبود (NB-12) → کش دیالوگ‌ها → ready."""
+    client = STATE["client"]
+    try:
+        me = _bg_call(ts._get_me(client), 90)
+    except Exception as e:
+        return _net_error(e)
+    STATE["who"] = " ".join((ts.utils.get_display_name(me) or str(me.id)).split())
+    backup = "backup_off"
+    if _bk_active() and not STATE["restored"]:
+        app = STATE["app"]
+        pw = ts.get_secret("enc_key") or STATE["enc_pw"]
+        if pw and ts.make_session_backup(app.session_path(STATE["api_id"]) + ".session",
+                                         app.backup_path(STATE["api_id"]), pw):
+            backup = "backup_ok"
+    try:
+        STATE["items"] = _bg_call(ts.load_dialogs(client), 600) or []
+    except Exception:
+        STATE["items"] = []
+    STATE["phase"] = "ready"
+    return jsonify({"phase": "ready", "who": STATE["who"],
+                    "restored": STATE["restored"], "backup": backup})
+
+
+def _connect_and_flow():
+    """connect → authorized؟ ورود کامل؛ وگرنه send_code → فاز need_code (قابلیت WEB-03)."""
+    client = STATE["client"]
+    try:
+        _bg_call(client.connect(), 90)
+    except ts.FloodWaitError as e:
+        return jsonify({"wait": int(e.seconds) + 2})
+    except Exception as e:
+        return _net_error(e)
+    try:
+        ok = _bg_call(client.is_user_authorized(), 60)
+    except Exception as e:
+        return _net_error(e)
+    if ok:
+        return _finish_login()
+    try:
+        _bg_call(client.send_code_request(STATE["phone"]), 90)
+    except ts.FloodWaitError as e:
+        STATE["phase"] = "need_code"
+        return jsonify({"wait": int(e.seconds) + 2, "phase": "need_code"})
+    except Exception as e:
+        return _net_error(e)
+    STATE["phase"] = "need_code"
+    return jsonify({"phase": "need_code"})
+
+
+@web.route("/api/login/start", methods=["POST"])
+def api_login_start():
+    """creds از Secret یا فرم + شماره → restore قبل از کلاینت (NB-12) → گام اول لاگین."""
+    bad = _bad_token()
+    if bad:
+        return bad
+    data = request.get_json(silent=True) or {}
+    with LOCK:
+        if STATE["phase"] == "ready":
+            return jsonify({"phase": "ready", "who": STATE["who"]})
+        if STATE["phase"] in ("need_code", "need_2fa"):
+            return jsonify({"phase": STATE["phase"]})
+        api_id = _valid_api_id(ts.get_secret("api_id")) or _valid_api_id(data.get("api_id"))
+        api_hash = _valid_hash(ts.get_secret("api_hash")) or _valid_hash(data.get("api_hash"))
+        if api_id is None:
+            return jsonify({"error": wt("bad_api_id"), "field": "api_id"}), 400
+        if api_hash is None:
+            return jsonify({"error": wt("bad_hash"), "field": "api_hash"}), 400
+        phone = ts.norm_phone(data.get("phone") or ts.get_secret("phone") or "")
+        if not phone or not phone.startswith("+"):
+            return jsonify({"error": wt("need_phone"), "field": "phone"}), 400
+        pw1 = str(data.get("enc_pw") or "").strip()
+        pw2 = str(data.get("enc_pw2") or "").strip()
+        if pw1 or pw2:
+            if pw1 != pw2:
+                return jsonify({"error": wt("pwd_mismatch"), "field": "enc_pw"}), 400
+            STATE["enc_pw"] = pw1
+        old = STATE["client"]                 # فاز need_login: کلاینت مرده را ببند (WEB-06)
+        if old is not None:
+            try:
+                _bg_call(ts._disconnect(old), 30)
+            except Exception:
+                pass
+        STATE.update(api_id=api_id, api_hash=api_hash, phone=phone, client=None,
+                     restored=False, items=[], resolve_cache={}, who="")
+        try:
+            app = _get_app()
+        except Exception as e:
+            return jsonify({"error": wt("internal", e=ts.short_err(e))}), 500
+        sess = app.session_path(api_id) + ".session"
+        if _bk_active() and not ts._session_ok(sess) \
+                and os.path.exists(app.backup_path(api_id)):   # فیکس NB-12: restore قبل از کلاینت
+            pw = ts.get_secret("enc_key") or STATE["enc_pw"]
+            if pw and ts.restore_session_backup(app.backup_path(api_id), sess, password=pw):
+                STATE["restored"] = True
+        try:
+            STATE["client"] = _bg_call(
+                ts.make_client(app.session_path(api_id), api_id, api_hash), 60)
+        except Exception as e:
+            return jsonify({"error": wt("internal", e=ts.short_err(e))}), 500
+        app.lock_session(api_id)
+        return _connect_and_flow()
+
+
+@web.route("/api/login/code", methods=["POST"])
+def api_login_code():
+    """کد پیامک؛ خطاها نگاشت به پیام‌های W؛ FloodWait → {wait} بدون ریست state (WEB-03)."""
+    bad = _bad_token()
+    if bad:
+        return bad
+    if STATE["phase"] != "need_code":
+        return jsonify({"error": wt("wrong_phase"), "phase": STATE["phase"]}), 409
+    code = str((request.get_json(silent=True) or {}).get("code") or "").replace(" ", "")
+    code = code.translate(ts._DIGITS)
+    if not re.fullmatch(r"\d{4,8}", code):
+        return jsonify({"error": wt("invalid_code"), "field": "code"}), 400
+    client = STATE["client"]
+    try:
+        _bg_call(client.sign_in(STATE["phone"], code), 90)
+    except ts.SessionPasswordNeededError:
+        STATE["phase"] = "need_2fa"
+        return jsonify({"phase": "need_2fa"})
+    except ts.PhoneCodeInvalidError:
+        return jsonify({"error": wt("invalid_code"), "field": "code"}), 400
+    except ts.PhoneCodeExpiredError:
+        try:
+            _bg_call(client.send_code_request(STATE["phone"]), 90)
+            return jsonify({"error": wt("code_expired_resent"), "field": "code"}), 400
+        except ts.FloodWaitError as e:
+            return jsonify({"wait": int(e.seconds) + 2})
+        except Exception:
+            return jsonify({"error": wt("invalid_code"), "field": "code"}), 400
+    except ts.FloodWaitError as e:
+        return jsonify({"wait": int(e.seconds) + 2})
+    except Exception as e:
+        return _net_error(e)
+    return _finish_login()
+
+
+@web.route("/api/login/resend", methods=["POST"])
+def api_login_resend():
+    """دکمه‌ی «ارسال دوباره» — همان مسیر تعاملی موتور، بدون ask() (قابلیت WEB-03)."""
+    bad = _bad_token()
+    if bad:
+        return bad
+    if STATE["phase"] != "need_code":
+        return jsonify({"error": wt("wrong_phase"), "phase": STATE["phase"]}), 409
+    try:
+        _bg_call(STATE["client"].send_code_request(STATE["phone"]), 90)
+    except ts.FloodWaitError as e:
+        return jsonify({"wait": int(e.seconds) + 2})
+    except Exception as e:
+        return _net_error(e)
+    return jsonify({"ok": True, "msg": wt("resent")})
+
+
+@web.route("/api/login/2fa", methods=["POST"])
+def api_login_2fa():
+    """رمز دو مرحله‌ای — فقط اگر سرور در فاز need_2fa باشد (قابلیت WEB-03)."""
+    bad = _bad_token()
+    if bad:
+        return bad
+    if STATE["phase"] != "need_2fa":
+        return jsonify({"error": wt("wrong_phase"), "phase": STATE["phase"]}), 409
+    pw = str((request.get_json(silent=True) or {}).get("password") or "")
+    if not pw:
+        return jsonify({"error": wt("need_password"), "field": "password"}), 400
+    try:
+        _bg_call(STATE["client"].sign_in(password=pw), 90)
+    except ts.PasswordHashInvalidError:
+        return jsonify({"error": wt("wrong_password"), "field": "password"}), 400
+    except ts.FloodWaitError as e:
+        return jsonify({"wait": int(e.seconds) + 2})
+    except Exception as e:
+        return _net_error(e)
+    return _finish_login()
+
+
 if __name__ == "__main__":
     main()
