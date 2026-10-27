@@ -26,29 +26,31 @@
 >
 > با این کار پوشه‌های خروجی، زیپ‌ها و بکاپ سشن در `MyDrive/TeleScrape` ذخیره می‌شوند و با قطع ران‌تایم از بین نمی‌روند.
 
-## ۱) دانلود فایل‌ها
+## ۱) دانلود فایل
+
+فایل یکپارچه‌ی `final.py` (موتور + لایه‌ی وب در یک فایل):
 
 ```python
-!wget -q https://raw.githubusercontent.com/Personalmo/telescrape/main/telescrape_v3.py
-!wget -q https://raw.githubusercontent.com/Personalmo/telescrape/main/telescrape_web.py
+!wget -q https://raw.githubusercontent.com/Personalmo/telescrape/main/final.py
 ```
 
 ## ۲) تست سلامت (بدون اتصال به تلگرام)
 
-هر دو باید با `0 failed` تمام شوند:
+یک دستور، هر دو سوئیت (اول موتور، بعد وب) — باید هر دو با `0 failed` تمام شوند:
 
 ```python
-!python telescrape_v3.py --selftest
-!python telescrape_web.py --selftest
+!python final.py --selftest
 ```
+
+> فقط سوئیت موتور: `!python final.py --selftest-engine`
 
 ## ۳) اجرای وب‌سرور در پس‌زمینه
 
 سرور را (ری)استارت می‌کند و لاگ اولیه را نشان می‌دهد — باید پیام `TeleScrape Web listening on 0.0.0.0:8000` را ببینید:
 
 ```python
-!pkill -f telescrape_web 2>/dev/null; sleep 1
-!nohup python telescrape_web.py --port 8000 > web.log 2>&1 &
+!pkill -f final.py 2>/dev/null; sleep 1
+!nohup python final.py --port 8000 > web.log 2>&1 &
 import time; time.sleep(5); print(open('web.log').read())
 ```
 
@@ -69,7 +71,7 @@ display(HTML(f'<a href="{url}" target="_blank">باز کردن صفحه وب</a>
 ## ⏹ توقف کامل سرور
 
 ```python
-!pkill -f telescrape_web
+!pkill -f final.py
 ```
 
 ## 🔧 عیب‌یابی سریع
