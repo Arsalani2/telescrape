@@ -271,6 +271,16 @@ def main():
     args = _parse_args()
     if args.no_drive:
         ts.USE_DRIVE = False
+    # فیکس WB-02: App/Drive در استارتاپ آماده می‌شود، نه در thread درخواست —
+    # drive.mount تعاملی داخل nohup می‌تواند کل سرور را ببن‌دست کند.
+    if ts.IN_COLAB and ts.USE_DRIVE and not os.path.isdir("/content/drive/MyDrive"):
+        ts.USE_DRIVE = False
+        print("⚠️ Drive ماونت نیست: خروجی روی دیسک موقت می‌ماند (با ریست ران‌تایم پاک می‌شود).")
+        print("   برای ماندگاری، در یک سلول اجرا کنید: from google.colab import drive; drive.mount('/content/drive')")
+    try:
+        STATE["app"] = ts.App()     # چون USE_DRIVE فقط با درایوِ ازپیش‌ماونت True می‌ماند، mount تعاملی در کار نیست
+    except Exception as e:
+        print(f"⚠️ ساخت App ناموفق بود ({ts.short_err(e)})؛ در اولین درخواست دوباره تلاش می‌شود.")
     _detect_secrets()
     print(f"TeleScrape Web listening on 0.0.0.0:{args.port}")
     print("Open it on the phone with: from google.colab import output;")
