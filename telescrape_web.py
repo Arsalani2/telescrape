@@ -246,6 +246,7 @@ def api_state():
             "token": STATE["token"],
             "who": STATE["who"],
             "restored": STATE["restored"],
+            "bk_active": _bk_active(),  # فیکس WB-13: وضعیت بکاپ سشن برای کارت «حساب»
             "secrets": dict(STATE["secrets"]),
             "has_job": bool(STATE["job"] and not STATE["job"]["done"]),
         })
@@ -867,6 +868,29 @@ input:focus,select:focus,button:focus-visible,[tabindex]:focus-visible{
 .toast.ok{border-inline-start-color:var(--ok)}
 .toast.err{border-inline-start-color:var(--danger)}
 .toast.warn{border-inline-start-color:var(--warn)}
+/* فیکس WB-13: تنظیمات تمام‌صفحه — سوییچ‌ها، کنترل قطعه‌ای سرعت و نوار ذخیره‌ی sticky */
+.sw-row{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  font-weight:600;padding:12px 0;border-bottom:1px solid var(--line);cursor:pointer;margin:0}
+.card .sw-row:last-child{border-bottom:0}
+.sw-row>span:first-child{flex:1}
+.sw-row .hint{display:block;font-weight:400;color:var(--muted);font-size:13px;
+  line-height:1.5;margin-top:2px}
+.sw{appearance:none;-webkit-appearance:none;flex:none;width:48px;height:28px;min-height:28px;
+  margin:0;border:0;border-radius:999px;background:var(--line);position:relative;
+  cursor:pointer;transition:background .2s;padding:0}
+.sw::after{content:"";position:absolute;top:3px;inset-inline-start:3px;width:22px;height:22px;
+  border-radius:50%;background:#fff;transition:inset-inline-start .2s}
+.sw:checked{background:var(--primary)}
+.sw:checked::after{inset-inline-start:23px}
+.seg{display:flex;gap:6px;margin:12px 0 4px}
+.seg-opt{flex:1;display:flex}
+.seg-opt input{position:absolute;opacity:0;pointer-events:none;outline:0}
+.seg-opt span{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:10px;
+  font-size:14px;font-weight:600;padding:8px 4px;cursor:pointer}
+.seg-opt input:checked+span{background:var(--primary);color:var(--primary-ink);border-color:var(--primary)}
+.seg-opt input:focus-visible+span{outline:3px solid var(--primary);outline-offset:1px}
+.savebar{position:sticky;bottom:8px;margin:16px 0}
 dialog{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);
   color:var(--text);max-width:92vw;width:420px;padding:16px}
 dialog::backdrop{background:rgba(0,0,0,.5)}
@@ -991,6 +1015,58 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
     <button class="btn ghost full" id="backBtn">بازگشت به چت‌ها</button>
   </div>
 </section>
+
+<!-- فیکس WB-13: تنظیمات به‌جای دیالوگ، نمای تمام‌صفحه با کارت‌های گروهی -->
+<section data-view="settings" hidden>
+  <div class="row">
+    <button class="btn ghost" id="setBack">بازگشت به چت‌ها</button>
+  </div>
+  <form id="setForm" novalidate>
+    <div class="card">
+      <h2>مدیا</h2>
+      <label class="sw-row" for="s_media">
+        <span>دانلود مدیا<span class="hint">عکس، ویدیو، صدا، ویس و فایل‌های چت دانلود شوند</span></span>
+        <input type="checkbox" role="switch" class="sw" id="s_media">
+      </label>
+      <label class="sw-row" for="s_limit">
+        <span>محدودسازی حجم<span class="hint">فقط فایل‌های کوچک‌تر از سقف دانلود شوند</span></span>
+        <input type="checkbox" role="switch" class="sw" id="s_limit">
+      </label>
+      <div id="mbWrap" hidden>
+        <label for="s_max">سقف حجم هر فایل (مگابایت)</label>
+        <input id="s_max" inputmode="numeric" dir="ltr" aria-describedby="mbHint">
+        <p class="muted" id="mbHint" aria-live="polite"></p>
+        <p class="err" id="err_max" aria-live="polite"></p>
+      </div>
+    </div>
+    <div class="card">
+      <h2>خروجی</h2>
+      <label class="sw-row" for="s_zip">
+        <span>ساخت زیپ<span class="hint">در پایان، همه‌ی خروجی‌ها یک فایل zip قابل دانلود می‌شود</span></span>
+        <input type="checkbox" role="switch" class="sw" id="s_zip">
+      </label>
+      <label class="sw-row" for="s_sidecar">
+        <span>فایل info کنار مدیا<span class="hint">مشخصات هر فایل در info.txt جداگانه ذخیره می‌شود</span></span>
+        <input type="checkbox" role="switch" class="sw" id="s_sidecar">
+      </label>
+    </div>
+    <div class="card">
+      <h2>سرعت</h2>
+      <p class="muted">سرعت و خنک‌سازی اسکرپ — هرچه تندتر، ریسک محدودیت تلگرام بیشتر</p>
+      <div class="seg" role="radiogroup" aria-label="سرعت و خنک‌سازی" id="s_speed"></div>
+      <p class="muted" id="speedHint" aria-live="polite"></p>
+    </div>
+  </form>
+  <div class="card">
+    <h2>حساب</h2>
+    <p id="accWho"></p>
+    <p class="muted" id="accBackup"></p>
+    <button class="btn danger full" id="logoutBtn">خروج کامل از حساب</button>
+  </div>
+  <div class="savebar">
+    <button class="btn full" type="submit" form="setForm">ذخیره‌ی تنظیمات</button>
+  </div>
+</section>
 </main>
 
 <dialog id="chatDlg" aria-labelledby="dlgName">
@@ -1001,25 +1077,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
   <button class="btn ghost full" id="dlgClose">انصراف</button>
 </dialog>
 
-<dialog id="setDlg" aria-labelledby="setTitle">
-  <h2 id="setTitle">تنظیمات</h2>
-  <form id="setForm">
-    <label><input type="checkbox" id="s_media"> دانلود مدیا</label>
-    <label><input type="checkbox" id="s_zip"> ساخت زیپ</label>
-    <label><input type="checkbox" id="s_sidecar"> فایل info کنار مدیا</label>
-    <label for="s_max">سقف حجم فایل (MB — ۰ یعنی نامحدود)</label>
-    <input id="s_max" inputmode="numeric" dir="ltr">
-    <label for="s_speed">سرعت و خنک‌سازی</label>
-    <select id="s_speed">
-      <option value="gentle">آرام</option>
-      <option value="normal">عادی</option>
-      <option value="fast">سریع</option>
-    </select>
-    <button class="btn full" type="submit">ذخیره</button>
-  </form>
-  <button class="btn danger full" id="logoutBtn">خروج کامل از حساب</button>
-  <button class="btn ghost full" id="setClose">بستن</button>
-</dialog>
+<!-- فیکس WB-13: دیالوگ قدیمیِ تنظیمات حذف شد — جایگزین: نمای تمام‌صفحه‌ی settings -->
 
 <dialog id="confirmDlg" aria-labelledby="confirmMsg">
   <p id="confirmMsg"></p>
@@ -1391,35 +1449,88 @@ $("#stopBtn").addEventListener("click", () => {
 
 $("#backBtn").addEventListener("click", () => showMain());
 
-$("#settingsBtn").addEventListener("click", () => {
-  api("/api/settings").then(r => {
-    const d = r.data || {};
+// فیکس WB-13: تنظیمات = نمای تمام‌صفحه با کارت‌های مدیا/خروجی/سرعت/حساب،
+// سوییچ‌های استایل‌دار، سرعتِ قطعه‌ای از پاسخ سرور و نوار ذخیره‌ی sticky
+const SPEED_LABEL = {gentle: "آرام", normal: "عادی", fast: "سریع"};
+const SPEED_HINT = {
+  gentle: "امن‌ترین — توقف‌های طولانی‌تر؛ کند اما کم‌ریسک",
+  normal: "پیشنهادی — تعادلِ سرعت و امنیت",
+  fast: "سریع‌ترین — ریسک محدودیت FloodWait بیشتر",
+};
+function buildSpeedSeg(speeds, current) {
+  const seg = $("#s_speed");
+  seg.innerHTML = "";
+  (speeds && speeds.length ? speeds : ["gentle", "normal", "fast"]).forEach(sp => {
+    const lab = document.createElement("label");
+    lab.className = "seg-opt";
+    const inp = document.createElement("input");
+    inp.type = "radio"; inp.name = "s_speed"; inp.value = sp;
+    inp.checked = sp === current;
+    inp.addEventListener("change", speedHintUpdate);
+    const spn = document.createElement("span");
+    spn.textContent = SPEED_LABEL[sp] || sp;
+    lab.append(inp, spn);
+    seg.appendChild(lab);
+  });
+}
+function speedHintUpdate() {
+  const sel = document.querySelector("#s_speed input:checked");
+  $("#speedHint").textContent = sel ? (SPEED_HINT[sel.value] || "") : "";
+}
+function mbHintUpdate() {
+  const v = Math.max(0, parseInt(norm($("#s_max").value.trim() || "0"), 10) || 0);
+  $("#mbHint").textContent = v > 0
+    ? "فایل‌های بزرگ‌تر از " + fa(v) + " مگابایت دانلود نمی‌شوند."
+    : "بدون سقف — همه‌ی فایل‌ها با هر حجمی دانلود می‌شوند.";
+}
+function mbToggle() {
+  $("#mbWrap").hidden = !$("#s_limit").checked;
+  mbHintUpdate();
+}
+function showSettings() {
+  clearErrs();
+  Promise.all([api("/api/settings"), api("/api/state")]).then(([rs, rt]) => {
+    const d = rs.data || {};
     const s = d.settings || {};
     $("#s_media").checked = !!s.media;
     $("#s_zip").checked = !!s.zip;
     $("#s_sidecar").checked = !!s.sidecar;
-    $("#s_max").value = s.max_mb ?? 0;
-    $("#s_speed").value = d.speed || "normal";
-    const dlg = $("#setDlg");
-    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
-  });
-});
-$("#setClose").addEventListener("click", () => $("#setDlg").close());
+    const mb = Math.max(0, parseInt(norm(s.max_mb ?? 0), 10) || 0);
+    $("#s_limit").checked = mb > 0;
+    $("#s_max").value = mb > 0 ? String(mb) : "100";
+    mbToggle();
+    buildSpeedSeg(d.speeds, d.speed || "normal");
+    speedHintUpdate();
+    const t = rt.data || {};
+    $("#accWho").textContent = t.who ? "حساب: " + t.who : "";
+    $("#accBackup").textContent = t.bk_active
+      ? (t.restored ? "بکاپ سشن روی Drive: فعال — این سشن از بکاپ بازیابی شده بود"
+                    : "بکاپ سشن روی Drive: فعال")
+      : "بکاپ سشن: غیرفعال (Drive یا کلید رمز TS_ENC_KEY در دسترس نیست)";
+    show("settings");
+  }).catch(() => toast("ارتباط با سرور برقرار نشد", "err"));
+}
+$("#settingsBtn").addEventListener("click", showSettings);
+$("#setBack").addEventListener("click", () => showMain());
+$("#s_limit").addEventListener("change", mbToggle);
+$("#s_max").addEventListener("input", mbHintUpdate);
 
 $("#setForm").addEventListener("submit", e => {
   e.preventDefault();
+  const sel = document.querySelector("#s_speed input:checked");
   api("/api/settings", {
     media: $("#s_media").checked, zip: $("#s_zip").checked,
-    sidecar: $("#s_sidecar").checked, max_mb: norm($("#s_max").value.trim() || "0"),
-    speed: $("#s_speed").value,
+    sidecar: $("#s_sidecar").checked,
+    max_mb: $("#s_limit").checked ? norm($("#s_max").value.trim() || "0") : "0",
+    speed: sel ? sel.value : "",
   }).then(r => {
-    if (r.status === 200) { toast("تنظیمات ذخیره شد", "ok"); $("#setDlg").close(); }
+    if (r.status === 200) { toast("تنظیمات ذخیره شد", "ok"); showMain(); }
+    else if (r.data && r.data.field === "max_mb") setErr("max", r.data.error);
     else toast((r.data && r.data.error) || "ذخیره نشد", "err");
   });
 });
 
 $("#logoutBtn").addEventListener("click", () => {
-  $("#setDlg").close();
   $("#confirmMsg").textContent = "خروج کامل: سشن محلی و بکاپ Drive هر دو حذف می‌شوند. مطمئنید؟";
   const dlg = $("#confirmDlg");
   if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
