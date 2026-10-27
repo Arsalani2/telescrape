@@ -24,10 +24,13 @@ WIDTH = 34                #@param {type:"slider", min:24, max:60, step:1}
 PER_PAGE = 10             #@param {type:"integer"}
 USE_DRIVE = False         #@param {type:"boolean"}
 SESSION_ON_DRIVE = False  #@param {type:"boolean"}
+# فیکس NB-12: بکاپ رمزنگاری‌شده‌ی session روی Drive — دیگر لازم نیست هر بار لاگین کنید
+SESSION_BACKUP = True     #@param {type:"boolean"}
 CLEAR_SCREEN = True       #@param {type:"boolean"}
 
 import os, sys, re, json, time, zipfile, asyncio, subprocess, getpass, random, shutil
 import textwrap, threading, collections, errno, unicodedata
+import sqlite3                            # فیکس NB-12: snapshot سازگار session با API استاندارد backup
 import concurrent.futures as cf
 from datetime import datetime
 
@@ -52,6 +55,12 @@ def _ensure(pkg, mod=None, required=True):
 
 _ensure("telethon>=1.40", mod="telethon")
 _ensure("cryptg", required=False)      # optional: fast AES downloads; Telethon uses it if present
+_ensure("cryptography", required=False)  # فیکس NB-12: رمزنگاری بکاپ session (AES-256-GCM)
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    HAS_CRYPTO = True
+except Exception:      # فیکس NB-12: نبودِ کتابخانه فقط قابلیت بکاپ را خاموش می‌کند، نه اجرا را
+    HAS_CRYPTO = False
 
 from telethon import TelegramClient, utils
 from telethon.errors import (FloodWaitError, SessionPasswordNeededError, PhoneCodeInvalidError,
@@ -71,6 +80,7 @@ SECRET_NAMES = {
     "api_hash": ("TG_API_HASH", "API_HASH"),
     "phone": ("TG_PHONE", "PHONE"),
     "pwd": ("TG_2FA_PASSWORD",),
+    "enc_key": ("TS_ENC_KEY", "ENC_KEY"),  # فیکس NB-12: رمز بکاپ — الزامی نیست، فقط لحظه‌ی بکاپ/ریستور خوانده می‌شود
 }
 
 # Cooldown profiles. Seconds are multiplied by an adaptive factor that grows after FloodWait.
@@ -157,6 +167,15 @@ S = {
         "logout_q": "از حساب خارج و session حذف شود؟ (y/N): ",
         "logged_out": "خارج شدید و session حذف شد.",
         "logout_partial": "⚠️ session محلی حذف شد ولی خروج از سرور ناموفق بود؛ از Settings → Devices در خود تلگرام خارج شوید.",
+        "backup_pwd_q": "رمزِ بکاپ session: ",
+        "backup_pwd_q2": "تکرار همان رمز (تأیید): ",
+        "backup_pwd_mismatch": "رمزها یکی نبودند؛ دوباره.",
+        "backup_pwd_visible": "⚠️ این محیط ورودی مخفی ندارد؛ رمز شما روی صفحه دیده می‌شود.",
+        "backup_ok": "🔐 بکاپ session رمزنگاری‌شده در Drive ذخیره شد:\n{p}",
+        "restore_ok": "🔓 session از بکاپ بازگردانی شد — حساب: {name}\n(برای لاگین تازه: گزینه ۶ یا حذف فایل بکاپ)",
+        "backup_bad": "⚠️ بازکردن بکاپ نشد (رمز غلط یا فایل خراب — اگر رمز TS_ENC_KEY را عوض کرده‌اید، بکاپ قدیمی دیگر باز نمی‌شود). لاگین تازه انجام می‌شود؛ بکاپ حذف نشد.",
+        "backup_skip": "⚠️ بکاپ session ساخته/بازخوانی نشد ({e}) — بدون بکاپ ادامه می‌دهیم.",
+        "backup_offline": "ℹ️ بکاپ session فقط در Colab با Drive فعال می‌شود؛ در ترمینال session محلی ماندگار است.",
         "enter": "Enter برای ادامه...",
         "bye": "خداحافظ 👋",
         "none": "ندارد",
@@ -234,6 +253,15 @@ S = {
         "logout_q": "Log out and delete the session? (y/N): ",
         "logged_out": "Logged out, session deleted.",
         "logout_partial": "⚠️ Local session deleted but server-side logout failed; sign out via Settings → Devices in Telegram itself.",
+        "backup_pwd_q": "Session backup password: ",
+        "backup_pwd_q2": "Repeat the same password (confirm): ",
+        "backup_pwd_mismatch": "Passwords did not match; try again.",
+        "backup_pwd_visible": "⚠️ No hidden input in this environment; your password will be visible on screen.",
+        "backup_ok": "🔐 Encrypted session backup saved to Drive:\n{p}",
+        "restore_ok": "🔓 Session restored from backup — account: {name}\n(for a fresh login: option 6 or delete the backup file)",
+        "backup_bad": "⚠️ Could not open the backup (wrong password or corrupt file — if you changed TS_ENC_KEY, the old backup no longer opens). Doing a fresh login; the backup was NOT deleted.",
+        "backup_skip": "⚠️ Session backup not created/read ({e}) — continuing without backup.",
+        "backup_offline": "ℹ️ Session backup only works in Colab with Drive; in a terminal the local session already persists.",
         "enter": "Press Enter to continue...",
         "bye": "Bye 👋",
         "none": "none",
@@ -665,6 +693,155 @@ def norm_phone(p):
     return p
 
 
+# ───────────────────── session backup: crypto + snapshot (فیکس NB-12) ─────────────────────
+BK_MAGIC = b"TSSE1"
+BK_HDR = len(BK_MAGIC) + 16 + 12          # magic + salt + nonce (تگ GCM داخل ciphertext است)
+BK_ITERS = 240_000
+
+
+def _bk_key(password, salt):
+    """PBKDF2-HMAC-SHA256 → کلید ۳۲ بایتی AES-256 (فیکس NB-12)."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    return PBKDF2HMAC(algorithm=hashes.SHA256(), length=32,
+                      salt=salt, iterations=BK_ITERS).derive(str(password).encode("utf-8"))
+
+
+def bk_encrypt(data, password):
+    """AES-256-GCM → TSSE1|salt|nonce|ciphertext+tag؛ salt و nonce هر بار تازه‌اند (فیکس NB-12)."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    salt, nonce = os.urandom(16), os.urandom(12)
+    ct = AESGCM(_bk_key(password, salt)).encrypt(nonce, data, BK_MAGIC)
+    return BK_MAGIC + salt + nonce + ct
+
+
+def bk_decrypt(blob, password):
+    """TSSE1 → plaintext؛ فرمت خراب/رمز غلط = exception (تگ GCM خودش صحت را چک می‌کند) (فیکس NB-12)."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    if len(blob) < BK_HDR + 16 or not blob.startswith(BK_MAGIC):
+        raise ValueError("bad backup format")
+    salt, nonce, ct = blob[5:21], blob[21:33], blob[33:]
+    return AESGCM(_bk_key(password, salt)).decrypt(nonce, ct, BK_MAGIC)
+
+
+def _session_ok(path):
+    """سشن محلی هست و SQLite سالم است؟ (پوشش سشنِ خراب‌شده وسط نوشتن) (فیکس NB-12)."""
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path, "rb") as f:
+            if not f.read(16).startswith(b"SQLite format 3\x00"):
+                return False
+    except OSError:
+        return False
+    try:
+        con = sqlite3.connect(path)
+        try:
+            con.execute("SELECT name FROM sqlite_master LIMIT 1")
+        finally:
+            con.close()
+        return True
+    except Exception:
+        return False
+
+
+def _ask_pwd_hidden(label):
+    """ورودی رمزِ مخفی — هرگز از ask() استفاده نمی‌شود (تبدیل ارقامِ فارسیِ ask رمز را خراب می‌کند) (فیکس NB-12)."""
+    try:
+        return getpass.getpass(t(label)).strip()
+    except Exception:
+        say(t("backup_pwd_visible"))
+        return ask(t(label)).strip()
+
+
+def get_backup_password(confirm=False):
+    """رمزِ بکاپ: اول Secret (TS_ENC_KEY/ENC_KEY) و بعد پرسیدنِ مخفی (فیکس NB-12).
+    جزو Secretهای الزامی نیست؛ فقط همین‌جا خوانده می‌شود. رمز خالی/عدم تطابق = None."""
+    pw = (get_secret("enc_key") or "").strip()
+    if pw:
+        return pw
+    for _ in range(3):
+        pw = _ask_pwd_hidden("backup_pwd_q")
+        if not pw:
+            return None
+        if not confirm or _ask_pwd_hidden("backup_pwd_q2") == pw:
+            return pw
+        say(t("backup_pwd_mismatch"))
+    return None
+
+
+def make_session_backup(session_file, dest, password):
+    """Snapshot سازگار (API استاندارد backup پایتون) → AES-256-GCM → نوشتن اتمیک (فیکس NB-12).
+    بکاپ قدیمی تا نوشتنِ کاملِ جدید تمام نشود حذف نمی‌شود؛ snapshot متن‌ساده هرگز جا نمی‌ماند."""
+    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+    tmp_plain = session_file + ".bksnap"
+    tmp_enc = dest + ".tmp"
+    try:
+        src = sqlite3.connect(session_file)
+        try:
+            dst = sqlite3.connect(tmp_plain)
+            try:
+                src.backup(dst)
+            finally:
+                dst.close()
+        finally:
+            src.close()
+        _chmod(tmp_plain, 0o600)
+        with open(tmp_plain, "rb") as f:
+            plain = f.read()
+        with open(tmp_enc, "wb") as f:
+            f.write(bk_encrypt(plain, password))
+        _chmod(tmp_enc, 0o600)
+        os.replace(tmp_enc, dest)
+        return True
+    finally:
+        _rm(tmp_plain)
+        _rm(tmp_enc)
+
+
+def restore_session_backup(backup_file, session_file, password=None):
+    """بازگردانی سشن از بکاپ رمزنگاری‌شده (فیکس NB-12): True=بازگردانی، False=نشد (بکاپ حذف نمی‌شود)."""
+    try:
+        with open(backup_file, "rb") as f:
+            blob = f.read()
+    except OSError:
+        return False
+    pw = password if password is not None else get_backup_password()
+    if not pw:
+        say(t("backup_skip", e="no password"))
+        return False
+    try:
+        plain = bk_decrypt(blob, pw)
+    except Exception:
+        say(t("backup_bad"))
+        return False
+    if not plain.startswith(b"SQLite format 3\x00"):
+        say(t("backup_bad"))
+        return False
+    tmp = session_file + ".bkrest"
+    try:
+        with open(tmp, "wb") as f:
+            f.write(plain)
+        _chmod(tmp, 0o600)
+        os.replace(tmp, session_file)
+        return True
+    finally:
+        _rm(tmp)
+
+
+def backup_active():
+    """قابلیت بکاپ فقط در Colab + Drive وصل‌شده + کتابخانه‌ی cryptography (فیکس NB-12)."""
+    if not SESSION_BACKUP:
+        return False
+    if not IN_COLAB or not USE_DRIVE:
+        say(t("backup_offline"))
+        return False
+    if not HAS_CRYPTO:
+        say(t("backup_skip", e="cryptography"))
+        return False
+    return True
+
+
 def get_creds():
     """Returns (api_id, api_hash, phone, pwd2fa, all_from_secrets)."""
     api_id_s = get_secret("api_id")
@@ -680,8 +857,7 @@ def get_creds():
     if api_hash and not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
         say(t("bad_hash"))
         api_hash = None
-    missing = [SECRET_NAMES[k][0] for k, v in (("api_id", api_id), ("api_hash", api_hash),
-                                               ("phone", phone)) if not v]
+    missing = [SECRET_NAMES[k][0] for k, v in (("api_id", api_id), ("api_hash", api_hash)) if not v]  # فیکس NB-12: phone دیگر الزامی نیست
     from_secrets = bool(api_id and api_hash)      # both came from Secrets/env (not typed by hand)
     if missing:
         say(t("secrets_missing", names=", ".join(missing)))
@@ -695,7 +871,7 @@ def get_creds():
         if not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
             say(t("bad_hash"))
             api_hash = None
-    phone = norm_phone(phone) if phone else norm_phone(ask(t("phone")))
+    phone = norm_phone(phone) if phone else None   # فیکس NB-12: phone فقط لحظه‌ی لاگین واقعی پرسیده می‌شود
     return api_id, api_hash, phone, pwd, from_secrets
 
 
@@ -745,6 +921,10 @@ class App:
 
     def session_path(self, api_id):
         return os.path.join(self.session_dir, f"tg_{api_id}")
+
+    def backup_path(self, api_id):
+        """مسیر بکاپ رمزنگاری‌شده‌ی session روی Drive (فیکس NB-12)."""
+        return os.path.join(self.base, "backup", f"tg_{api_id}.session.enc")
 
     def lock_session(self, api_id):
         for suffix in (".session", ".session-journal"):
@@ -1393,6 +1573,8 @@ def login(client, phone, pwd2fa):
 
     def send():
         nonlocal phone
+        if not phone:              # فیکس NB-12: phone فقط وقتی واقعاً لاگین لازم است پرسیده می‌شود
+            phone = norm_phone(ask(t("phone")))
         for _ in range(5):
             try:
                 run(client.send_code_request(phone))
@@ -1518,6 +1700,11 @@ def app_main():
     if from_secrets:
         app.cleanup_legacy()
     _cleanup_previous_session()
+    sess = app.session_path(api_id) + ".session"
+    bk_on = backup_active()             # فیکس NB-12: فقط در Colab + Drive + cryptography
+    restored = False
+    if bk_on and not _session_ok(sess) and os.path.exists(app.backup_path(api_id)):
+        restored = restore_session_backup(app.backup_path(api_id), sess)   # فیکس NB-12: restore قبل از ساخت کلاینت
     client = run(make_client(app.session_path(api_id), api_id, api_hash))
     sys._telescrape_prev = (client, _BG["loop"])   # survives cell re-runs (kept on sys)
     app.lock_session(api_id)          # 600 from the moment the file exists, before any login step
@@ -1526,7 +1713,19 @@ def app_main():
         app.lock_session(api_id)
         me = run(_get_me(client))     # فیکس NB-09
         who = utils.get_display_name(me) or str(me.id)
-        say(t("login_ok", name=who))
+        if restored:                  # فیکس NB-12: هویت حسابِ restore‌شده صریح چاپ شود (دام حساب اشتباه)
+            say(t("restore_ok", name=who))
+        else:
+            say(t("login_ok", name=who))
+        if bk_on and not restored:     # فیکس NB-12: بعد از ورود موفق، بکاپ رمزنگاری‌شده روی Drive
+            try:
+                pw = get_backup_password(confirm=True)
+                if pw and make_session_backup(sess, app.backup_path(api_id), pw):
+                    say(t("backup_ok", p=app.backup_path(api_id)))
+                elif pw is None:
+                    say(t("backup_skip", e="no password"))
+            except Exception as e:
+                say(t("backup_skip", e=short_err(e)))
         say(t("loading"))
         items = run(load_dialogs(client))
 
@@ -1664,6 +1863,50 @@ def _selftest():
         save_json(p, {"a": 1, "b": "فارسی"})
         eq(load_json(p), {"a": 1, "b": "فارسی"}, "json.roundtrip")
         eq(load_json(os.path.join(tmp, "missing.json")), None, "json.missing")
+
+    # فیکس NB-12: بکاپ session — رمزنگاری/درودنگری + سلامت snapshot (بدون شبکه)
+    if HAS_CRYPTO:
+        blob = bk_encrypt(b"hello session", "p@ss")
+        eq(bk_decrypt(blob, "p@ss"), b"hello session", "bk.roundtrip")
+        eq(len(blob) > BK_HDR, True, "bk.len")
+        badp = False
+        try:
+            bk_decrypt(blob, "wrong!")
+        except Exception:
+            badp = True
+        eq(badp, True, "bk.wrongpass")
+        badp = False
+        try:
+            bk_decrypt(b"XXXX2" + blob[5:], "p@ss")
+        except Exception:
+            badp = True
+        eq(badp, True, "bk.badmagic")
+        badp = False
+        try:
+            bk_decrypt(BK_MAGIC + b"x" * 10, "p@ss")
+        except Exception:
+            badp = True
+        eq(badp, True, "bk.shortheader")
+        with tempfile.TemporaryDirectory() as tmp:
+            s = os.path.join(tmp, "tg_1.session")
+            con = sqlite3.connect(s)
+            con.execute("CREATE TABLE v(x)")
+            con.commit()
+            con.close()
+            eq(_session_ok(s), True, "bk.sessok")
+            eq(_session_ok(os.path.join(tmp, "nope.session")), False, "bk.sessmissing")
+            with open(os.path.join(tmp, "zero.session"), "w"):
+                pass
+            eq(_session_ok(os.path.join(tmp, "zero.session")), False, "bk.sesscorrupt")
+            dest = os.path.join(tmp, "backup", "tg_1.session.enc")
+            eq(make_session_backup(s, dest, "pw"), True, "bk.mksnap")
+            eq(os.path.exists(dest), True, "bk.file")
+            eq(not os.path.exists(s + ".bksnap"), True, "bk.notmpplain")
+            r = os.path.join(tmp, "r.session")
+            eq(restore_session_backup(dest, r, password="pw"), True, "bk.restore")
+            eq(_session_ok(r), True, "bk.restored")
+            eq(restore_session_backup(dest + ".nope", os.path.join(tmp, "r2.session")), False,
+               "bk.restore_missing")
 
     print(f"self-test: {ok} passed, {fail} failed")
     raise SystemExit(1 if fail else 0)
