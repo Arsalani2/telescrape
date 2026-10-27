@@ -956,7 +956,8 @@ async def download(client, m, path, size, th, tag=""):
     """Download to <path>.part then rename. Retries on errors, cancels stalled transfers."""
     part = path + ".part"
     last = None
-    for attempt in range(4):
+    attempt, floods = 0, 0        # فیکس NB-06: FloodWait سهمیه‌ی تلاش را نمی‌سوزاند
+    while attempt < 4:
         if STOP.is_set():
             raise Stopped()
         try:
@@ -991,6 +992,9 @@ async def download(client, m, path, size, th, tag=""):
             return False
         except FloodWaitError as e:
             last = e
+            floods += 1                     # فیکس NB-06: سقف مستقل برای محدودیت‌ها (نه تلاش)
+            if floods >= 6:
+                break
             w = th.flood(e.seconds)
             notify(t("flood", s=int(w)))
             await nap(w)
@@ -1000,6 +1004,7 @@ async def download(client, m, path, size, th, tag=""):
             last = e
             if attempt < 3:
                 await nap(min(BACKOFF_BASE * 2 ** attempt, 40) + random.random())
+            attempt += 1               # فیکس NB-06: فقط خطای واقعی تلاش مصرف می‌کند
         finally:
             if not task.done():
                 task.cancel()
