@@ -881,6 +881,8 @@ async def _get_entity(client, peer):
             return await asyncio.wait_for(client.get_entity(peer), 20)
         except FloodWaitError as e:
             await nap(float(e.seconds) + 2)
+        except RETRY_ERRORS:      # فیکس NB-05: خطای گذِرا (شبکه/تایم‌اوت) با backoff کوتاه دوباره
+            await asyncio.sleep(2)
         except Exception:
             return None
     return None
