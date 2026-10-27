@@ -23,7 +23,6 @@ SPEED = "normal"          #@param ["gentle", "normal", "fast"]
 WIDTH = 34                #@param {type:"slider", min:24, max:60, step:1}
 PER_PAGE = 10             #@param {type:"integer"}
 USE_DRIVE = False         #@param {type:"boolean"}
-SESSION_ON_DRIVE = False  #@param {type:"boolean"}
 # فیکس NB-12: بکاپ رمزنگاری‌شده‌ی session روی Drive — دیگر لازم نیست هر بار لاگین کنید
 SESSION_BACKUP = True     #@param {type:"boolean"}
 CLEAR_SCREEN = True       #@param {type:"boolean"}
@@ -99,7 +98,7 @@ S = {
         "hint": "کادر ورودی پایین خروجی است؛ اگر دیده نشد اسکرول کنید.",
         "secrets_missing": "⚠️ Secret پیدا نشد: {names}\n🔑 در Colab بسازید و «Notebook access» را روشن کنید. فعلاً دستی وارد کنید.",
         "legacy_removed": "🧹 فایل قدیمی API Hash پاک شد (دیگر لازم نیست).",
-        "old_session": "⚠️ session قدیمی روی Drive هست. اگر لازم ندارید پاکش کنید:\n{p}",
+        "old_session": "🚨 سشنِ خامِ قدیمی روی Drive پیدا شد — این فایل = لاگین کاملِ رمزنگاری‌نشده‌ی اکانت شماست. اگر بکاپ رمزنگاری‌شده دارید، همین را دستی پاک کنید:\n{p}",
         "prev_closed": "🧹 کلاینتِ اجرای قبلی بسته شد (جلوگیری از دو اتصال روی یک session).",
         "api_id": "API ID: ",
         "api_hash": "API Hash (نامرئی): ",
@@ -178,6 +177,9 @@ S = {
         "backup_offline": "ℹ️ بکاپ session فقط در Colab با Drive فعال می‌شود؛ در ترمینال session محلی ماندگار است.",
         "backup_deleted": "🧹 بکاپ Drive هم حذف شد.",
         "backup_left": "⚠️ حذف بکاپ Drive ناموفق بود؛ فایل هنوز آنجاست:\n{p}",
+        "legacy_import_q": "یک session قدیمی (خام) روی Drive پیدا شد. همین‌جا import شود تا به بکاپ رمزنگاری‌شده تبدیل شود؟ (Y/n): ",
+        "legacy_import_ok": "session قدیمی import شد؛ بعد از ورود، بکاپ رمزنگاری‌شده ساخته می‌شود. بعد خودتان فایل خام را از Drive پاک کنید.",
+        "legacy_import_fail": "⚠️ import سشن قدیمی ناموفق بود: {e}",
         "enter": "Enter برای ادامه...",
         "bye": "خداحافظ 👋",
         "none": "ندارد",
@@ -187,7 +189,7 @@ S = {
         "hint": "The input box is at the bottom of the output; scroll down if hidden.",
         "secrets_missing": "⚠️ Secret not found: {names}\n🔑 Create it in Colab and enable 'Notebook access'. Enter manually for now.",
         "legacy_removed": "🧹 Old saved API Hash file removed (no longer needed).",
-        "old_session": "⚠️ An old session is on Drive. Delete it if unneeded:\n{p}",
+        "old_session": "🚨 A raw old session was found on Drive — this file IS your full, unencrypted account login. If you have an encrypted backup, delete it manually:\n{p}",
         "prev_closed": "🧹 Previous run's client closed (avoids two connections on one session).",
         "api_id": "API ID: ",
         "api_hash": "API Hash (hidden): ",
@@ -266,6 +268,9 @@ S = {
         "backup_offline": "ℹ️ Session backup only works in Colab with Drive; in a terminal the local session already persists.",
         "backup_deleted": "🧹 Drive backup deleted too.",
         "backup_left": "⚠️ Could not delete the Drive backup; the file is still there:\n{p}",
+        "legacy_import_q": "An old raw session was found on Drive. Import it here so it becomes an encrypted backup? (Y/n): ",
+        "legacy_import_ok": "Old session imported; after login an encrypted backup will be created. Delete the raw file from Drive yourself afterwards.",
+        "legacy_import_fail": "⚠️ Importing the old session failed: {e}",
         "enter": "Press Enter to continue...",
         "bye": "Bye 👋",
         "none": "none",
@@ -898,8 +903,8 @@ class App:
         self.exports = os.path.join(self.base, "exports")
         self.zips = os.path.join(self.base, "zips")
         self.settings_path = os.path.join(self.base, "settings.json")
-        # The session file equals your Telegram login -> keep it off Drive unless asked.
-        sess_root = self.base if (USE_DRIVE and SESSION_ON_DRIVE) else local
+        # فیکس NB-14: سشن همیشه محلی است؛ روی Drive فقط بکاپ رمزنگاری‌شده ذخیره می‌شود
+        sess_root = local  # فیکس NB-14
         self.session_dir = os.path.join(sess_root, "session")
         for d in (self.base, self.exports, self.zips, self.session_dir):
             os.makedirs(d, exist_ok=True)
@@ -948,7 +953,7 @@ class App:
                 removed = True
         if removed:
             say(t("legacy_removed"))
-        if USE_DRIVE and not SESSION_ON_DRIVE:
+        if USE_DRIVE:   # فیکس NB-14: با حذف SESSION_ON_DRIVE، هشدار سشن خام قدیمی همیشه فعال است
             old = os.path.join(self.base, "session")
             if os.path.isdir(old) and any(f.endswith(".session") for f in os.listdir(old)) \
                     and os.path.abspath(old) != os.path.abspath(self.session_dir):
@@ -1716,6 +1721,17 @@ def app_main():
     restored = False
     if bk_on and not _session_ok(sess) and os.path.exists(app.backup_path(api_id)):
         restored = restore_session_backup(app.backup_path(api_id), sess)   # فیکس NB-12: restore قبل از ساخت کلاینت
+    if bk_on and not _session_ok(sess) \
+            and not os.path.exists(app.backup_path(api_id)):   # فیکس NB-14: مهاجرت اختیاری سشن خام قدیمی Drive
+        legacy = os.path.join(app.base, "session", f"tg_{api_id}.session")
+        if os.path.exists(legacy):
+            try:
+                if ask(t("legacy_import_q")).lower() in ("", "y"):
+                    shutil.copyfile(legacy, sess)
+                    _chmod(sess, 0o600)
+                    say(t("legacy_import_ok"))
+            except Exception as e:
+                say(t("legacy_import_fail", e=short_err(e)))
     client = run(make_client(app.session_path(api_id), api_id, api_hash))
     sys._telescrape_prev = (client, _BG["loop"])   # survives cell re-runs (kept on sys)
     app.lock_session(api_id)          # 600 from the moment the file exists, before any login step
