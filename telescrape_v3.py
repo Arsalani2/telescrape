@@ -1651,3 +1651,10 @@ def main():
     except Exception as e:
         say(t("fatal", e=short_err(e)))       # no raw tracebacks — project UX rule
         try:
+            pause()
+        except Exception:
+            pass
+
+
+if __name__ == "__main__":
+    main()
