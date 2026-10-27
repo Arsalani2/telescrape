@@ -861,6 +861,7 @@ input:focus,select:focus,button:focus-visible,[tabindex]:focus-visible{
 .stat b{font-size:16px}
 #toasts{position:fixed;inset-inline:12px;bottom:calc(12px + env(safe-area-inset-bottom));
   display:flex;flex-direction:column;gap:8px;z-index:60}
+#countdown{position:fixed;inset-inline:12px;top:64px;z-index:55;margin:0;box-shadow:var(--shadow)}
 .toast{background:var(--surface);border:1px solid var(--line);border-inline-start:4px solid var(--primary);
   border-radius:10px;padding:10px 14px;box-shadow:var(--shadow);font-size:14px}
 .toast.ok{border-inline-start-color:var(--ok)}
@@ -1081,22 +1082,27 @@ function show(view) {
 }
 
 let cdTimer = null;
-function countdown(wait, after) {
+function countdown(wait, after, btn) {
   const box = $("#countdown");
   box.hidden = false;
   let left = Math.max(1, parseInt(wait, 10) || 1);
   $("#cdSec").textContent = fa(left);
+  if (btn && !btn.dataset.old) btn.dataset.old = btn.textContent;  // فیکس WB-06: شمارش روی خود دکمه
+  if (btn) btn.disabled = true;
   if (cdTimer) clearInterval(cdTimer);
   cdTimer = setInterval(() => {
     left -= 1;
     $("#cdSec").textContent = fa(Math.max(0, left));
-    if (left <= 0) { clearInterval(cdTimer); cdTimer = null; box.hidden = true; if (after) after(); }
+    if (btn) btn.textContent = (btn.dataset.old || "") + " — " + fa(Math.max(0, left)) + " ثانیه";
+    if (left <= 0) { clearInterval(cdTimer); cdTimer = null; box.hidden = true;
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.old || btn.textContent; }
+      if (after) after(); }
   }, 1000);
 }
 
-function handleAuth(r, retry) {
+function handleAuth(r, retry, btn) {
   const d = r.data || {};
-  if (d.wait) { countdown(d.wait, retry); return true; }
+  if (d.wait) { countdown(d.wait, retry, btn); return true; }
   if (d.phase === "ready") { showMain(); return true; }
   if (d.phase === "need_2fa") { showLogin("need_2fa"); return true; }
   if (d.phase === "need_code") { showLogin("need_code"); return true; }
@@ -1301,7 +1307,7 @@ $("#setupForm").addEventListener("submit", e => {
   api("/api/login/start", body).then(r => {
     busy(btn, false);
     if (r.status === 403) { toast((r.data && r.data.error) || "توکن نامعتبر", "err"); return; }
-    if (handleAuth(r, () => $("#setupForm").requestSubmit())) return;
+    if (handleAuth(r, () => $("#setupForm").requestSubmit(), btn)) return;
     if (!r.data || (!r.data.phase && !r.data.wait && !r.data.error)) toast("پاسخ نامعتبر", "err");
   }).catch(() => { busy(btn, false); toast("ارتباط برقرار نشد", "err"); });
 });
@@ -1313,7 +1319,7 @@ $("#codeForm").addEventListener("submit", e => {
   busy(btn, true);
   api("/api/login/code", { code: norm($("#code").value.trim()) }).then(r => {
     busy(btn, false);
-    if (handleAuth(r, () => $("#codeForm").requestSubmit())) return;
+    if (handleAuth(r, () => $("#codeForm").requestSubmit(), btn)) return;
     toast((r.data && r.data.error) || "خطا", "err");
   }).catch(() => { busy(btn, false); toast("ارتباط برقرار نشد", "err"); });
 });
@@ -1322,7 +1328,7 @@ $("#twoFaForm").addEventListener("submit", e => {
   e.preventDefault();
   clearErrs();
   api("/api/login/2fa", { password: $("#password").value }).then(r => {
-    if (handleAuth(r, () => $("#twoFaForm").requestSubmit())) return;
+    if (handleAuth(r, () => $("#twoFaForm").requestSubmit(), $("#twoFaForm button"))) return;
     toast((r.data && r.data.error) || "خطا", "err");
   }).catch(() => toast("ارتباط برقرار نشد", "err"));
 });
