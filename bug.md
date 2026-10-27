@@ -53,6 +53,15 @@
   `<int(signed=True):cid>` + دو کیس selftest (route.negative/positive) + گزارش
   سکرت‌های رسیده در web.log هنگام بوت (پیگیری NB-15). تست دستی کاربر مانده.
 
+- [x] **NB-19 — 🟡 خودتست در Colab پیام گمراه‌کننده‌ی «اتصال Drive ناموفق:
+  AttributeError: 'NoneType' object has no attribute 'kernel'» می‌داد** (خروجی کاربر):
+  علت: ساخت `App` در _selftest با USE_DRIVE=True سعی در mount تعاملی Drive می‌کرد؛
+  `drive.mount` هم مثل userdata فقط با کرنلِ نوت‌بوک کار می‌کند و در پروسه‌ی جدا
+  AttributeError می‌دهد. بی‌ضرر بود (۴۰/۴۰ پاس شد) ولی گمراه‌کننده. فیکس:
+  `ts.USE_DRIVE = False` در ابتدای _selftest. هر دو سوئیت پاس‌اند (۴۶+۴۰، ۰ خطا).
+  پیگیری NB-15: تشخیص کرنل نشان داد ۴ سکرت (API_ID/HASH/2FA/ENC) سالم‌اند؛
+  TG_PHONE اصلاً ساخته نشده (SecretNotFoundError) — باید ساخته شود تا فیلدش هم مخفی شود.
+
 ## قواعد عمومی ایجنت‌ها (الزام)
 
 1. **پروتکل پوش**: بعد از هر پوش، fetch-back از GitHub + مقایسه‌ی بایت‌دقیق با
