@@ -164,7 +164,7 @@ S = {
         "sp_normal": "عادی",
         "sp_fast": "سریع",
         "mb_q": "سقف حجم (MB): ",
-        "logout_q": "از حساب خارج و session حذف شود؟ (y/N): ",
+        "logout_q": "از حساب خارج و session محلی + بکاپ Drive هر دو حذف شوند؟ (y/N): ",
         "logged_out": "خارج شدید و session حذف شد.",
         "logout_partial": "⚠️ session محلی حذف شد ولی خروج از سرور ناموفق بود؛ از Settings → Devices در خود تلگرام خارج شوید.",
         "backup_pwd_q": "رمزِ بکاپ session: ",
@@ -176,6 +176,8 @@ S = {
         "backup_bad": "⚠️ بازکردن بکاپ نشد (رمز غلط یا فایل خراب — اگر رمز TS_ENC_KEY را عوض کرده‌اید، بکاپ قدیمی دیگر باز نمی‌شود). لاگین تازه انجام می‌شود؛ بکاپ حذف نشد.",
         "backup_skip": "⚠️ بکاپ session ساخته/بازخوانی نشد ({e}) — بدون بکاپ ادامه می‌دهیم.",
         "backup_offline": "ℹ️ بکاپ session فقط در Colab با Drive فعال می‌شود؛ در ترمینال session محلی ماندگار است.",
+        "backup_deleted": "🧹 بکاپ Drive هم حذف شد.",
+        "backup_left": "⚠️ حذف بکاپ Drive ناموفق بود؛ فایل هنوز آنجاست:\n{p}",
         "enter": "Enter برای ادامه...",
         "bye": "خداحافظ 👋",
         "none": "ندارد",
@@ -250,7 +252,7 @@ S = {
         "sp_normal": "normal",
         "sp_fast": "fast",
         "mb_q": "Max size (MB): ",
-        "logout_q": "Log out and delete the session? (y/N): ",
+        "logout_q": "Log out and delete the session + its Drive backup? (y/N): ",
         "logged_out": "Logged out, session deleted.",
         "logout_partial": "⚠️ Local session deleted but server-side logout failed; sign out via Settings → Devices in Telegram itself.",
         "backup_pwd_q": "Session backup password: ",
@@ -262,6 +264,8 @@ S = {
         "backup_bad": "⚠️ Could not open the backup (wrong password or corrupt file — if you changed TS_ENC_KEY, the old backup no longer opens). Doing a fresh login; the backup was NOT deleted.",
         "backup_skip": "⚠️ Session backup not created/read ({e}) — continuing without backup.",
         "backup_offline": "ℹ️ Session backup only works in Colab with Drive; in a terminal the local session already persists.",
+        "backup_deleted": "🧹 Drive backup deleted too.",
+        "backup_left": "⚠️ Could not delete the Drive backup; the file is still there:\n{p}",
         "enter": "Press Enter to continue...",
         "bye": "Bye 👋",
         "none": "none",
@@ -1529,6 +1533,13 @@ def settings_screen(app, client, api_id):
                 except Exception:
                     ok = False
                 app.delete_session(api_id)
+                # فیکس NB-13: خروجِ کامل = سشن محلی + بکاپ Drive؛ شکست حذف = هشدار، نه پیام موفقیت
+                try:
+                    if os.path.exists(app.backup_path(api_id)):
+                        _rm(app.backup_path(api_id))
+                        say(t("backup_deleted"))
+                except Exception:
+                    say(t("backup_left", p=app.backup_path(api_id)))
                 say(t("logged_out") if ok else t("logout_partial"))
                 return "logout"
         elif c == "0":
