@@ -26,6 +26,8 @@
 ```
 
 ## ۲) لانچر سرور (سکرت‌ها را پاس می‌دهد)
+> TG_PHONE **اختیاری** است: اگر نسازید فقط شماره را دستی در فرم وارد می‌کنید؛
+> بقیه‌ی سکرت‌ها خودکار خوانده می‌شوند (پر باشد → خودش می‌رود؛ خالی باشد → دستی).
 ```python
 import os, subprocess, time
 from google.colab import userdata
@@ -36,6 +38,10 @@ def _sec(name):
         return str(v) if v else None
     except Exception:
         return None
+
+# فیکس NB-20: پروسه‌ی قدیمی (بدون سکرتِ تازه) اول کشته شود تا پورت آزاد شود
+subprocess.run(["pkill", "-f", "telescrape.py"], capture_output=True)
+time.sleep(2)
 
 env = {**os.environ, "TS_WEB_CHILD": "1"}
 found = []
@@ -50,7 +56,7 @@ with open("web.log", "w") as log:
                      stdout=log, stderr=log)
 print("سکرت‌های پاس‌شده:", found or "هیچ — مقادیر را دستی در فرم وارد می‌کنید")
 time.sleep(8)
-print(open("web.log").read())
+print(open("web.log").read())   # باید بنویسد: سکرت‌های تشخیص‌داده‌شده: [...]
 ```
 
 ## ۳) باز کردن روی گوشی
@@ -69,10 +75,11 @@ drive.mount('/content/drive')
 قبل از لانچر اجرا کنید تا خروجی روی Drive بماند.
 
 ## ری‌استارت سرور
+سلول لانچر (۲) خودش ابتدای کار پروسه‌ی قدیمی را می‌کشد؛ فقط دوباره اجرایش کنید
+(و بعد سلول ۳ برای لینک تازه). اگر دستی لازم شد:
 ```
 !pkill -f telescrape.py
 ```
-سپس سلول ۲ (و ۳) را دوباره اجرا کنید.
 
 ## عیب‌یابی
 - **صفحه باز نمی‌شود**: خروجی سلول ۲ را چک کنید — در web.log باید
