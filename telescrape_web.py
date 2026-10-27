@@ -286,13 +286,14 @@ def _bk_active():
 
 
 def _finish_login():
-    """بعد از ورود: _get_me (NB-09) → بکاپ اگر restore نبود (NB-12) → کش دیالوگ‌ها → ready."""
+    """بعد از ورود: _get_me (NB-09) → بکاپ اگر restore نبود (NB-12) → کش دیالوگ‌ها → ready.
+    فیکس WB-14: همه‌ی فراخوانی‌های شبکه بیرون از LOCK؛ نوشتهای STATE زیر LOCK اتمیک‌اند."""
     client = STATE["client"]
     try:
         me = _bg_call(ts._get_me(client), 90)
     except Exception as e:
         return _net_error(e)
-    STATE["who"] = " ".join((ts.utils.get_display_name(me) or str(me.id)).split())
+    who = " ".join((ts.utils.get_display_name(me) or str(me.id)).split())
     backup = "backup_off"
     if _bk_active() and not STATE["restored"]:
         app = STATE["app"]
@@ -301,10 +302,13 @@ def _finish_login():
                                          app.backup_path(STATE["api_id"]), pw):
             backup = "backup_ok"
     try:
-        STATE["items"] = _bg_call(ts.load_dialogs(client), 600) or []
+        items = _bg_call(ts.load_dialogs(client), 600) or []
     except Exception:
-        STATE["items"] = []
-    STATE["phase"] = "ready"
+        items = []
+    with LOCK:                                 # فیکس WB-14: who/items/phase با هم
+        STATE["who"] = who
+        STATE["items"] = items
+        STATE["phase"] = "ready"
     return jsonify({"phase": "ready", "who": STATE["who"],
                     "restored": STATE["restored"], "backup": backup})
 
@@ -327,11 +331,13 @@ def _connect_and_flow():
     try:
         _bg_call(client.send_code_request(STATE["phone"]), 90)
     except ts.FloodWaitError as e:
-        STATE["phase"] = "need_code"
+        with LOCK:                              # فیکس WB-14: نوشتن phase زیر LOCK
+            STATE["phase"] = "need_code"
         return jsonify({"wait": int(e.seconds) + 2, "phase": "need_code"})
     except Exception as e:
         return _net_error(e)
-    STATE["phase"] = "need_code"
+    with LOCK:                                  # فیکس WB-14
+        STATE["phase"] = "need_code"
     return jsonify({"phase": "need_code"})
 
 
@@ -500,23 +506,30 @@ def _res_payload(res):
 
 
 def _job_payload():
-    j = STATE["job"]
-    if j is None:
-        return None
-    return {"chat": j["chat"], "chat_id": j["chat_id"], "started_at": j["started_at"],
-            "done": j["done"], "error": j["error"],
-            "result": _res_payload(j["result"]) if j["done"] else None}
+    with LOCK:                                 # فیکس WB-14: خواندن job زیر LOCK (RLock باز_entry است)
+        j = STATE["job"]
+        if j is None:
+            return None
+        return {"chat": j["chat"], "chat_id": j["chat_id"], "started_at": j["started_at"],
+                "done": j["done"], "error": j["error"],
+                "result": _res_payload(j["result"]) if j["done"] else None}
 
 
 def _job_done(fut):
-    """پایان job روی thread خود future: ذخیره‌ی نتیجه + ریست STOP (قابلیت WEB-04)."""
+    """پایان job روی thread خود future: ذخیره‌ی نتیجه + ریست STOP (قابلیت WEB-04).
+    فیکس WB-14: نتیجه/خطا بیرون از LOCK از future خوانده می‌شود؛ همه‌ی
+    نوشتهای STATE در یک بلوک اتمیکِ واحد زیر LOCK انجام می‌شوند."""
+    res = err = None
     try:
         res = fut.result()
-        STATE["job"]["result"] = res
-        STATE["last_result"] = res
     except Exception as e:
-        STATE["job"]["error"] = ts.short_err(e)
-    STATE["job"]["done"] = True
+        err = ts.short_err(e)
+    with LOCK:
+        STATE["job"]["result"] = res
+        STATE["job"]["error"] = err
+        if res is not None:
+            STATE["last_result"] = res
+        STATE["job"]["done"] = True
     ts.STOP.clear()
 
 
