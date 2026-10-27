@@ -448,5 +448,273 @@ def api_login_2fa():
     return _finish_login()
 
 
+# ═══════════════ WEB-04: API چت‌ها، اجرا، پیشرفت، زیپ، تنظیمات، خروج ═══════════════
+
+PER_PAGE_WEB = 20
+
+
+def _require_ready():
+    """گارد فاز: همه‌ی APIهای اصلی فقط در فاز ready (قابلیت WEB-04/WEB-06)."""
+    if STATE["phase"] != "ready" or STATE["client"] is None:
+        return jsonify({"error": wt("not_ready"), "phase": STATE["phase"]}), 409
+    return None
+
+
+def _find_item(cid):
+    for it in STATE["items"]:
+        if it["id"] == cid:
+            return it
+    return STATE["resolve_cache"].get(cid)
+
+
+def _res_payload(res):
+    """نتیجه‌ی scrape برای JSON — فقط فیلدهای امن (قابلیت WEB-04)."""
+    if not res:
+        return None
+    z = res.get("zip")
+    return {"folder": res.get("folder"), "zip": z,
+            "zip_name": os.path.basename(z) if z else None,
+            "empty": bool(res.get("empty")), "interrupted": bool(res.get("interrupted")),
+            "reason": res.get("reason") or "", "msgs": res.get("msgs", 0),
+            "files": res.get("files", 0), "skipped": res.get("skipped", 0),
+            "errors": res.get("errors", 0)}
+
+
+def _job_payload():
+    j = STATE["job"]
+    if j is None:
+        return None
+    return {"chat": j["chat"], "chat_id": j["chat_id"], "started_at": j["started_at"],
+            "done": j["done"], "error": j["error"],
+            "result": _res_payload(j["result"]) if j["done"] else None}
+
+
+def _job_done(fut):
+    """پایان job روی thread خود future: ذخیره‌ی نتیجه + ریست STOP (قابلیت WEB-04)."""
+    try:
+        res = fut.result()
+        STATE["job"]["result"] = res
+        STATE["last_result"] = res
+    except Exception as e:
+        STATE["job"]["error"] = ts.short_err(e)
+    STATE["job"]["done"] = True
+    ts.STOP.clear()
+
+
+@web.route("/api/dialogs")
+def api_dialogs():
+    """لیست چت‌ها با فیلتر دسته + جست‌وجو + صفحه‌بندی سمت سرور (قابلیت WEB-04).
+    در JSON فقط id/name/cat/username می‌آید — entity هرگز بیرون نمی‌رود."""
+    r = _require_ready()
+    if r:
+        return r
+    cat = request.args.get("cat", "all")
+    q = (request.args.get("q") or "").strip().lower()
+    page = max(1, _to_int(request.args.get("page"), 1) or 1)
+    if request.args.get("refresh") == "1" or not STATE["items"]:
+        try:
+            STATE["items"] = _bg_call(ts.load_dialogs(STATE["client"]), 600) or []
+        except Exception as e:
+            return _net_error(e)
+    items = STATE["items"]
+    if cat in ("channel", "group", "private", "bot"):
+        items = [it for it in items if it["cat"] == cat]
+    if q:
+        items = [it for it in items if ts._match(it, q)]
+    total = len(items)
+    pages = max(1, -(-total // PER_PAGE_WEB))
+    page = min(page, pages)
+    start = (page - 1) * PER_PAGE_WEB
+    return jsonify({
+        "total": total, "page": page, "pages": pages, "cat": cat, "q": q,
+        "items": [{"id": it["id"], "name": it["name"], "cat": it["cat"],
+                   "username": it["username"]} for it in items[start:start + PER_PAGE_WEB]],
+    })
+
+
+@web.route("/api/resolve", methods=["POST"])
+def api_resolve():
+    """ورودی آیدی/یوزرنیم/لینک — همان resolve موتور؛ نتیجه در resolve_cache (WEB-04)."""
+    bad = _bad_token()
+    if bad:
+        return bad
+    r = _require_ready()
+    if r:
+        return r
+    text = str((request.get_json(silent=True) or {}).get("text") or "")
+    try:
+        it = _bg_call(ts.resolve(STATE["client"], text, STATE["items"]), 90)
+    except Exception as e:
+        return _net_error(e)
+    if it is None:
+        return jsonify({"error": wt("not_found")}), 404
+    STATE["resolve_cache"][it["id"]] = it
+    return jsonify({"item": {"id": it["id"], "name": it["name"], "cat": it["cat"],
+                             "username": it["username"]}})
+
+
+@web.route("/api/chat/<int:cid>")
+def api_chat(cid):
+    """کارت چت: نام + آیدی + تعداد پیام با count_msgs (قابلیت WEB-04)."""
+    r = _require_ready()
+    if r:
+        return r
+    it = _find_item(cid)
+    if it is None:
+        return jsonify({"error": wt("not_found")}), 404
+    try:
+        total = _bg_call(ts.count_msgs(STATE["client"], it["entity"]), 60)
+    except Exception:
+        total = None
+    return jsonify({"id": it["id"], "name": it["name"], "username": it["username"],
+                    "cat": it["cat"], "total": total})
+
+
+@web.route("/api/start", methods=["POST"])
+def api_start():
+    """شروع scrape روی bg loop؛ فقط یک job هم‌زمان — وگرنه 409 (قابلیت WEB-04/WEB-06)."""
+    bad = _bad_token()
+    if bad:
+        return bad
+    r = _require_ready()
+    if r:
+        return r
+    data = request.get_json(silent=True) or {}
+    with LOCK:
+        if STATE["job"] is not None and not STATE["job"]["done"]:
+            return jsonify({"error": wt("job_running")}), 409
+        cid = _to_int(data.get("id"))
+        if cid is None:
+            return jsonify({"error": wt("invalid_input")}), 400
+        it = _find_item(cid)
+        if it is None:
+            return jsonify({"error": wt("not_found")}), 404
+        ts.STOP.clear()                      # توقفِ قبلی روی job تازه اثر نگذارد
+        app = STATE["app"]
+        fut = asyncio.run_coroutine_threadsafe(
+            ts.scrape(app, STATE["client"], it, app.speed), ts._bg_loop())
+        ts.PROG.update(phase="scrape", chat=it["name"], chat_id=it["id"], total=None,
+                       done=0, pct=0, files=0, skipped=0, errors=0, zip=None)
+        ts.notify(wt("job_started", name=ts.short(it["name"], 40)))
+        STATE["job"] = {"chat": it["name"], "chat_id": it["id"],
+                        "started_at": time.time(), "result": None, "error": None, "done": False}
+        STATE["last_result"] = None
+        fut.add_done_callback(_job_done)
+    return jsonify({"ok": True, "job": _job_payload()})
+
+
+@web.route("/api/stop", methods=["POST"])
+def api_stop():
+    """توقف — ts.STOP.set()؛ idempotent (قابلیت WEB-04/WEB-06)."""
+    bad = _bad_token()
+    if bad:
+        return bad
+    ts.STOP.set()
+    return jsonify({"ok": True})
+
+
+@web.route("/api/progress")
+def api_progress():
+    """پیشرفت زنده: PROG (فیلدهای ساختاریافته WEB-02) + درینِ _msgs + نتیجه‌ی job."""
+    msgs = []
+    while True:
+        try:
+            msgs.append(ts._msgs.popleft())
+        except IndexError:
+            break
+    with LOCK:
+        return jsonify({
+            "phase": STATE["phase"],
+            "prog": dict(ts.PROG),
+            "msgs": msgs,
+            "job": _job_payload(),
+            "result": _res_payload(STATE["last_result"]),
+        })
+
+
+@web.route("/api/zip")
+def api_zip():
+    """دانلود زیپ — فقط فایل داخل app.zips با گارد realpath (قابلیت WEB-04)."""
+    r = _require_ready()
+    if r:
+        return r
+    path = _zip_path(STATE["app"].zips, request.args.get("name"))
+    if path is None or not os.path.isfile(path):
+        return jsonify({"error": wt("zip_not_found")}), 404
+    return send_file(path, as_attachment=True,
+                     download_name=os.path.basename(path))
+
+
+@web.route("/api/settings")
+def api_settings_get():
+    """همان ۵ گزینه‌ی settings_screen + speed (قابلیت WEB-04)."""
+    app = _get_app()
+    return jsonify({"settings": app.settings, "speed": app.speed,
+                    "speeds": list(ts.PROFILES.keys())})
+
+
+@web.route("/api/settings", methods=["POST"])
+def api_settings_post():
+    """ذخیره‌ی تنظیمات با type-check سفت‌لوق + App.save_settings (قابلیت WEB-04)."""
+    bad = _bad_token()
+    if bad:
+        return bad
+    data = request.get_json(silent=True) or {}
+    app = _get_app()
+    cfg = app.settings
+    if "media" in data:
+        cfg["media"] = bool(data["media"])
+    if "zip" in data:
+        cfg["zip"] = bool(data["zip"])
+    if "sidecar" in data:
+        cfg["sidecar"] = bool(data["sidecar"])
+    if "max_mb" in data:
+        try:
+            cfg["max_mb"] = max(0, int(str(data["max_mb"]).translate(ts._DIGITS)))
+        except (TypeError, ValueError):
+            return jsonify({"error": wt("invalid_input"), "field": "max_mb"}), 400
+    if "speed" in data:
+        if data["speed"] not in ts.PROFILES:
+            return jsonify({"error": wt("invalid_input"), "field": "speed"}), 400
+        app.speed = data["speed"]
+    app.save_settings()
+    return jsonify({"ok": True, "settings": cfg, "speed": app.speed})
+
+
+@web.route("/api/logout", methods=["POST"])
+def api_logout():
+    """خروج کامل: نتیجه‌ی log_out چک می‌شود (NB-11) + حذف بکاپ Drive (NB-13)."""
+    bad = _bad_token()
+    if bad:
+        return bad
+    if STATE["client"] is None:
+        return jsonify({"error": wt("not_ready"), "phase": STATE["phase"]}), 409
+    ok = False                                  # فیکس NB-11: log_out روی شکست False
+    try:
+        ok = bool(_bg_call(STATE["client"].log_out(), 90))
+    except Exception:
+        ok = False
+    app = _get_app()
+    api_id = STATE["api_id"]
+    app.delete_session(api_id)
+    msg = wt("logged_out") if ok else wt("logout_partial")
+    try:                                        # فیکس NB-13: بکاپ Drive هم حذف شود
+        bp = app.backup_path(api_id)
+        if os.path.exists(bp):
+            ts._rm(bp)
+            msg += " " + wt("backup_deleted")
+    except Exception:
+        msg += " " + wt("backup_left")
+    try:
+        _bg_call(ts._disconnect(STATE["client"]), 30)
+    except Exception:
+        pass
+    with LOCK:
+        STATE.update(client=None, who="", items=[], resolve_cache={}, job=None,
+                     last_result=None, restored=False, phase="setup", enc_pw=None)
+    _detect_secrets()
+    return jsonify({"ok": True, "msg": msg})
+
+
 if __name__ == "__main__":
     main()
