@@ -6,8 +6,11 @@ TeleScrape Final — یک فایل، همه‌ی TeleScrape: موتور v3 + ل�
 اجرا در Colab (دو سلول):
     !wget -q https://raw.githubusercontent.com/Personalmo/telescrape/main/final.py
     !nohup python final.py --port 8000 >/dev/null 2>&1 &
-سپس در سلول بعدی:
-    from google.colab import output; output.serve_kernel_port_as_window(8000)
+سپس در سلول بعدی (لینک روی گوشی باز می‌شود):
+    from google.colab import output
+    from IPython.display import HTML, display
+    url = output.eval_js("google.colab.kernel.proxyPort(8000)")
+    display(HTML(f'<a href="{url}" target="_blank">TeleScrape</a>'))
 
 حالت‌ها:
     python final.py                    → رابط وب (پیش‌فرض — موبایل‌پسند)

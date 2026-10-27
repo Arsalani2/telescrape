@@ -83,12 +83,17 @@
 !nohup python final.py --port 8000 >/dev/null 2>&1 &
 ```
 
-**سلول ۳ — باز کردن رابط روی گوشی:**
+**سلول ۳ — باز کردن رابط روی گوشی** (لینک فقط برای حساب Google شما باز می‌شود):
 
 ```python
 from google.colab import output
-output.serve_kernel_port_as_window(8000)
+from IPython.display import HTML, display
+
+url = output.eval_js("google.colab.kernel.proxyPort(8000)")
+display(HTML(f'<a href="{url}" target="_blank">باز کردن صفحه وب</a>'))
 ```
+
+> ⚠️ روش قدیمی `serve_kernel_port_as_window` هشدار deprecation می‌دهد («may stop working due to changes in browser security»)؛ روش بالا (پروکسی خود Colab) پایدار است. `serve_kernel_port_as_iframe` هم گزینه‌ی جایگزین کولب است ولی رابط را داخل سلولِ تنگ نشان می‌دهد.
 
 > 💡 پس از ورود موفق، سشن رمزنگاری‌شده روی Drive بکاپ می‌شود؛ ران‌تایمِ قطع‌شده دوباره بدون کد پیامک وارد می‌شود.
 >
