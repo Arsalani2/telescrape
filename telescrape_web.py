@@ -715,6 +715,663 @@ def api_logout():
     _detect_secrets()
     return jsonify({"ok": True, "msg": msg})
 
+# ═══════════════ WEB-05: فرانت‌اند تک‌صفحه‌ای فارسی RTL موبایل‌پسند ═══════════════
+#PAGE_FULL
+PAGE = r"""<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>اسکرپر تلگرام</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f6fb; --surface:#ffffff; --text:#0f172a; --muted:#556072;
+  --primary:#1d4ed8; --primary-ink:#ffffff; --danger:#b91c1c; --ok:#15803d; --warn:#a16207;
+  --line:#dbe2ee; --radius:14px; --shadow:0 4px 16px rgba(15,23,42,.08);
+}
+html.dark{
+  --bg:#0b1220; --surface:#141d33; --text:#e8edf7; --muted:#96a1b5;
+  --primary:#7aa5f8; --primary-ink:#0b1220; --danger:#f87171; --ok:#4ade80; --warn:#fbbf24;
+  --line:#28334e; --shadow:0 4px 16px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:Vazirmatn, system-ui, -apple-system, "Segoe UI", sans-serif;
+  background:var(--bg); color:var(--text); font-size:16px; line-height:1.6;
+  min-height:100vh; padding-bottom:calc(env(safe-area-inset-bottom) + 24px);
+}
+.topbar{display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px;position:sticky;top:0;background:var(--surface);
+  border-bottom:1px solid var(--line);z-index:10}
+.topbar h1{font-size:18px;margin:0;display:flex;align-items:center;gap:8px}
+.wrap{max-width:560px;margin:0 auto;padding:0 16px}
+h2{font-size:17px;margin:0 0 8px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px;box-shadow:var(--shadow);margin:16px 0}
+.muted{color:var(--muted);font-size:14px;margin:4px 0}
+.num{font-variant-numeric:tabular-nums}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.btn{min-height:44px;min-width:44px;border:0;border-radius:12px;font:inherit;font-weight:600;
+  padding:10px 16px;background:var(--primary);color:var(--primary-ink);cursor:pointer}
+.btn:active{transform:scale(.97)}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--primary);border:1px solid var(--line)}
+.btn.danger{background:var(--danger);color:#fff}
+.btn.full{width:100%}
+.btn.sticky{position:sticky;bottom:8px;box-shadow:var(--shadow)}
+a{color:var(--primary)}
+label{display:block;font-weight:600;margin:12px 0 6px}
+input,select{width:100%;min-height:44px;border:1px solid var(--line);border-radius:10px;
+  background:var(--bg);color:var(--text);font:inherit;padding:10px 12px}
+input:focus,select:focus,button:focus-visible,[tabindex]:focus-visible{
+  outline:3px solid var(--primary);outline-offset:1px}
+.err{color:var(--danger);font-size:13px;margin-top:6px;display:none}
+.err.show{display:block}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+.tab{flex:1 1 19%;min-height:44px;border:1px solid var(--line);background:var(--surface);
+  color:var(--text);border-radius:10px;font:inherit;font-size:14px;padding:8px 4px;cursor:pointer}
+.tab[aria-selected="true"]{background:var(--primary);color:var(--primary-ink);border-color:var(--primary)}
+.list-item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
+  min-height:56px;border:0;border-bottom:1px solid var(--line);background:none;
+  color:var(--text);font:inherit;text-align:right;padding:8px 4px;cursor:pointer}
+.list-item b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:12px;color:var(--muted);flex:none}
+.skeleton{height:56px;border-radius:10px;margin:8px 0;
+  background:linear-gradient(90deg,var(--line) 25%,var(--surface) 50%,var(--line) 75%);
+  background-size:200% 100%;animation:shimmer 1.2s infinite}
+@keyframes shimmer{to{background-position:-200% 0}}
+.progress{height:14px;border-radius:999px;background:var(--line);overflow:hidden;margin:12px 0}
+.progress>div{height:100%;background:var(--primary);transition:width .4s}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.stat{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.stat .muted{margin:0;font-size:12px}
+.stat b{font-size:16px}
+#toasts{position:fixed;inset-inline:12px;bottom:calc(12px + env(safe-area-inset-bottom));
+  display:flex;flex-direction:column;gap:8px;z-index:60}
+.toast{background:var(--surface);border:1px solid var(--line);border-inline-start:4px solid var(--primary);
+  border-radius:10px;padding:10px 14px;box-shadow:var(--shadow);font-size:14px}
+.toast.ok{border-inline-start-color:var(--ok)}
+.toast.err{border-inline-start-color:var(--danger)}
+.toast.warn{border-inline-start-color:var(--warn)}
+dialog{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);
+  color:var(--text);max-width:92vw;width:420px;padding:16px}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <h1><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9M4 15a5 5 0 0 1 5 5M5 19h.01"/><circle cx="5.5" cy="8.5" r="2.5"/><path d="M12 12l8-8"/><path d="M17 4h3v3"/></svg>اسکرپر تلگرام</h1>
+  <button id="themeBtn" class="btn ghost" aria-label="تغییر روشن/تاریک">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+  </button>
+</header>
+<main class="wrap">
+
+<section data-view="setup" hidden>
+  <div class="card">
+    <h2>اتصال به حساب تلگرام</h2>
+    <p class="muted" id="secHint"></p>
+    <form id="setupForm" novalidate>
+      <div id="credFields">
+        <label for="api_id">API ID</label>
+        <input id="api_id" inputmode="numeric" autocomplete="off" dir="ltr" aria-describedby="err_api_id">
+        <p class="err" id="err_api_id" aria-live="polite"></p>
+        <label for="api_hash">API Hash</label>
+        <input id="api_hash" type="password" autocomplete="off" dir="ltr" aria-describedby="err_api_hash">
+        <p class="err" id="err_api_hash" aria-live="polite"></p>
+      </div>
+      <label for="phone">شماره تلگرام</label>
+      <input id="phone" type="tel" inputmode="tel" placeholder="+98912..." autocomplete="off" dir="ltr" aria-describedby="err_phone">
+      <p class="err" id="err_phone" aria-live="polite"></p>
+      <details id="encWrap">
+        <summary>رمز بکاپ سشن (اختیاری — اگر Secret با نام TS_ENC_KEY ندارید)</summary>
+        <label for="enc_pw">رمز بکاپ</label>
+        <input id="enc_pw" type="password" autocomplete="off" aria-describedby="err_enc_pw">
+        <label for="enc_pw2">تکرار همان رمز</label>
+        <input id="enc_pw2" type="password" autocomplete="off">
+        <p class="err" id="err_enc_pw" aria-live="polite"></p>
+      </details>
+      <p class="err" id="err_setup" aria-live="polite"></p>
+      <button class="btn full" id="setupBtn" type="submit">شروع ورود</button>
+    </form>
+  </div>
+</section>
+
+<section data-view="login" hidden>
+  <div class="card">
+    <h2 id="loginTitle">کد تلگرام</h2>
+    <p class="muted">کد به تلگرام (نه پیامک) فرستاده می‌شود.</p>
+    <form id="codeForm" novalidate>
+      <label for="code">کد ورود</label>
+      <input id="code" inputmode="numeric" autocomplete="one-time-code" dir="ltr" aria-describedby="err_code">
+      <p class="err" id="err_code" aria-live="polite"></p>
+      <button class="btn full" id="codeBtn" type="submit">بررسی کد</button>
+    </form>
+    <form id="twoFaForm" hidden novalidate>
+      <label for="password">رمز دو مرحله‌ای</label>
+      <input id="password" type="password" autocomplete="off" aria-describedby="err_password">
+      <p class="err" id="err_password" aria-live="polite"></p>
+      <button class="btn full" type="submit">ورود</button>
+    </form>
+    <button class="btn ghost full" id="resendBtn">ارسال دوباره‌ی کد</button>
+  </div>
+</section>
+
+<section data-view="main" hidden>
+  <div class="row">
+    <p class="muted" id="who"></p>
+    <button class="btn ghost" id="refreshBtn">بازخوانی</button>
+  </div>
+  <div class="tabs" role="tablist" aria-label="دسته‌ی چت‌ها">
+    <button class="tab" role="tab" data-cat="all" aria-selected="true">همه</button>
+    <button class="tab" role="tab" data-cat="channel" aria-selected="false">کانال</button>
+    <button class="tab" role="tab" data-cat="group" aria-selected="false">گروه</button>
+    <button class="tab" role="tab" data-cat="private" aria-selected="false">شخصی</button>
+    <button class="tab" role="tab" data-cat="bot" aria-selected="false">ربات</button>
+  </div>
+  <label for="q" class="visually-hidden">جست‌وجو</label>
+  <input id="q" type="search" placeholder="جست‌وجو…" aria-describedby="listState">
+  <form id="resolveForm" novalidate>
+    <label for="resolveInput">ورود دستی: آیدی / یوزرنیم / لینک</label>
+    <input id="resolveInput" dir="ltr" autocomplete="off" placeholder="@username یا t.me/..." aria-describedby="err_resolve">
+    <p class="err" id="err_resolve" aria-live="polite"></p>
+    <button class="btn ghost full" type="submit">پیدا کن</button>
+  </form>
+  <div id="list"></div>
+  <p class="muted" id="listState" aria-live="polite"></p>
+  <div class="row">
+    <button class="btn ghost" id="prevBtn">قبلی</button>
+    <span id="pageInfo" class="num muted"></span>
+    <button class="btn ghost" id="nextBtn">بعدی</button>
+  </div>
+  <button class="btn ghost full" id="settingsBtn">تنظیمات و خروج</button>
+</section>
+
+<section data-view="progress" hidden>
+  <div class="card">
+    <h2 id="progChat"></h2>
+    <div class="progress" role="progressbar" id="barWrap" aria-label="پیشرفت" aria-valuemin="0" aria-valuemax="100">
+      <div id="bar"></div>
+    </div>
+    <p class="num" id="progTxt" dir="ltr"></p>
+    <div class="grid">
+      <div class="stat"><p class="muted">پیام</p><b id="stDone" class="num">۰</b></div>
+      <div class="stat"><p class="muted">از کل</p><b id="stTotal" class="num">؟</b></div>
+      <div class="stat"><p class="muted">فایل</p><b id="stFiles" class="num">۰</b></div>
+      <div class="stat"><p class="muted">خطا</p><b id="stErr" class="num">۰</b></div>
+    </div>
+    <p class="muted" id="phaseNote"></p>
+  </div>
+  <button class="btn danger full sticky" id="stopBtn">توقف اسکرپ</button>
+</section>
+
+<section data-view="result" hidden>
+  <div class="card">
+    <h2 id="resTitle"></h2>
+    <div class="grid" id="resStats"></div>
+    <p class="muted" id="resFolder" dir="ltr"></p>
+    <a id="zipLink" class="btn full" hidden>دانلود زیپ</a>
+    <button class="btn ghost full" id="backBtn">بازگشت به چت‌ها</button>
+  </div>
+</section>
+</main>
+
+<dialog id="chatDlg" aria-labelledby="dlgName">
+  <h2 id="dlgName"></h2>
+  <p class="muted">آیدی: <span id="dlgId" dir="ltr" class="num"></span></p>
+  <p>تعداد پیام: <span id="dlgTotal" class="num"></span></p>
+  <button class="btn full" id="startBtn">شروع اسکرپ</button>
+  <button class="btn ghost full" id="dlgClose">انصراف</button>
+</dialog>
+
+<dialog id="setDlg" aria-labelledby="setTitle">
+  <h2 id="setTitle">تنظیمات</h2>
+  <form id="setForm">
+    <label><input type="checkbox" id="s_media"> دانلود مدیا</label>
+    <label><input type="checkbox" id="s_zip"> ساخت زیپ</label>
+    <label><input type="checkbox" id="s_sidecar"> فایل info کنار مدیا</label>
+    <label for="s_max">سقف حجم فایل (MB — ۰ یعنی نامحدود)</label>
+    <input id="s_max" inputmode="numeric" dir="ltr">
+    <label for="s_speed">سرعت و خنک‌سازی</label>
+    <select id="s_speed">
+      <option value="gentle">آرام</option>
+      <option value="normal">عادی</option>
+      <option value="fast">سریع</option>
+    </select>
+    <button class="btn full" type="submit">ذخیره</button>
+  </form>
+  <button class="btn danger full" id="logoutBtn">خروج کامل از حساب</button>
+  <button class="btn ghost full" id="setClose">بستن</button>
+</dialog>
+
+<dialog id="confirmDlg" aria-labelledby="confirmMsg">
+  <p id="confirmMsg"></p>
+  <div class="row">
+    <button class="btn danger" id="confirmYes">بله، خارج شو</button>
+    <button class="btn ghost" id="confirmNo">انصراف</button>
+  </div>
+</dialog>
+
+<div id="countdown" hidden class="card" role="status">
+  <p>محدودیت تلگرام؛ <span id="cdSec" class="num"></span> ثانیه صبر…</p>
+</div>
+<div id="toasts" aria-live="polite"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const FD = {"۰":"0","۱":"1","۲":"2","۳":"3","۴":"4","۵":"5","۶":"6","۷":"7","۸":"8","۹":"9",
+            "٠":"0","١":"1","٢":"2","٣":"3","٤":"4","٥":"5","٦":"6","٧":"7","٨":"8","٩":"9"};
+const norm = s => String(s ?? "").replace(/[۰-۹٠-٩]/g, c => FD[c] ?? c);
+const FA = "۰۱۲۳۴۵۶۷۸۹";
+const fa = n => String(n ?? "").replace(/\d/g, d => FA[+d]);
+let TOKEN = "";
+
+async function api(path, body, method) {
+  const opt = { method: method || (body ? "POST" : "GET"),
+                headers: { "X-TS-Token": TOKEN } };
+  if (body) { opt.headers["Content-Type"] = "application/json";
+              opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  let d = {};
+  try { d = await r.json(); } catch (e) {}
+  return { status: r.status, data: d };
+}
+
+function toast(msg, cls) {
+  const t = document.createElement("div");
+  t.className = "toast" + (cls ? " " + cls : "");
+  t.textContent = msg;
+  $("#toasts").appendChild(t);
+  setTimeout(() => t.remove(), 5000);
+}
+
+function setErr(id, msg) {
+  const el = $("#err_" + id);
+  el.textContent = msg || "";
+  el.classList.toggle("show", !!msg);
+}
+function clearErrs() { $$(".err").forEach(e => { e.textContent = ""; e.classList.remove("show"); }); }
+
+function busy(btn, on, txt) {
+  if (on) { btn.dataset.old = btn.textContent; btn.disabled = true; btn.textContent = txt || "لطفا صبر کنید…"; }
+  else { btn.disabled = false; if (btn.dataset.old) btn.textContent = btn.dataset.old; }
+}
+
+function show(view) {
+  $$("section[data-view]").forEach(s => { s.hidden = s.dataset.view !== view; });
+  window.scrollTo(0, 0);
+}
+
+let cdTimer = null;
+function countdown(wait, after) {
+  const box = $("#countdown");
+  box.hidden = false;
+  let left = Math.max(1, parseInt(wait, 10) || 1);
+  $("#cdSec").textContent = fa(left);
+  if (cdTimer) clearInterval(cdTimer);
+  cdTimer = setInterval(() => {
+    left -= 1;
+    $("#cdSec").textContent = fa(Math.max(0, left));
+    if (left <= 0) { clearInterval(cdTimer); cdTimer = null; box.hidden = true; if (after) after(); }
+  }, 1000);
+}
+
+function handleAuth(r, retry) {
+  const d = r.data || {};
+  if (d.wait) { countdown(d.wait, retry); return true; }
+  if (d.phase === "ready") { showMain(); return true; }
+  if (d.phase === "need_2fa") { showLogin("need_2fa"); return true; }
+  if (d.phase === "need_code") { showLogin("need_code"); return true; }
+  if (d.error) {
+    if (d.field) setErr(d.field, d.error);
+    else { setErr("setup", d.error); toast(d.error, "err"); }
+    return true;
+  }
+  return false;
+}
+
+function boot() {
+  api("/api/state").then(r => {
+    TOKEN = (r.data && r.data.token) || "";
+    const p = (r.data && r.data.phase) || "setup";
+    const sec = (r.data && r.data.secrets) || {};
+    if (p === "ready") showMain();
+    else if (p === "need_code" || p === "need_2fa") showLogin(p);
+    else showSetup(sec, p === "need_login");
+  }).catch(() => toast("ارتباط با سرور برقرار نشد", "err"));
+}
+
+function showSetup(sec, dead) {
+  clearErrs();
+  $("#secHint").textContent =
+    (sec.api_id && sec.api_hash ? "API ID و Hash از Secretها خوانده می‌شوند. "
+     : "API ID و Hash از my.telegram.org لازم است. ") +
+    (sec.phone ? "شماره از Secret خوانده می‌شود." : "شماره را با کد کشور وارد کنید.") +
+    (dead ? " اتصال قبلی قطع شده بود؛ دوباره وارد شوید." : "");
+  $("#credFields").hidden = !!(sec.api_id && sec.api_hash);
+  $("#encWrap").hidden = !!sec.enc_key;
+  show("setup");
+}
+
+function showLogin(phase) {
+  clearErrs();
+  const two = phase === "need_2fa";
+  $("#loginTitle").textContent = two ? "رمز دو مرحله‌ای" : "کد تلگرام";
+  $("#codeForm").hidden = two;
+  $("#twoFaForm").hidden = !two;
+  $("#resendBtn").hidden = two;
+  show("login");
+  (two ? $("#password") : $("#code")).focus();
+}
+
+function showMain() {
+  api("/api/state").then(r => {
+    $("#who").textContent = (r.data && r.data.who) ? "حساب: " + r.data.who : "";
+    if (r.data && r.data.has_job) { showProgress(); return; }
+  });
+  show("main");
+  loadList(1);
+}
+
+const listQ = { cat: "all", q: "", page: 1 };
+function loadList(page, refresh) {
+  listQ.page = page || 1;
+  $("#list").innerHTML = "";
+  for (let i = 0; i < 6; i++) $("#list").insertAdjacentHTML("beforeend", "<div class='skeleton'></div>");
+  $("#listState").textContent = "در حال دریافت…";
+  const url = "/api/dialogs?cat=" + encodeURIComponent(listQ.cat) +
+              "&q=" + encodeURIComponent(listQ.q) + "&page=" + listQ.page +
+              (refresh ? "&refresh=1" : "");
+  api(url).then(r => {
+    const d = r.data || {};
+    $("#list").innerHTML = "";
+    if (r.status !== 200) {
+      $("#listState").textContent = "";
+      if (d.phase === "need_login") { showSetup(d.secrets || {}, true); return; }
+      errorState("دریافت لیست ناموفق بود.");
+      return;
+    }
+    const items = d.items || [];
+    if (!items.length) {
+      $("#list").insertAdjacentHTML("beforeend",
+        "<div class='card'><p class='muted'>موردی پیدا نشد.</p>" +
+        "<button class='btn ghost full' id='retryBtn2'>تلاش دوباره</button></div>");
+      const rb = $("#retryBtn2");
+      if (rb) rb.onclick = () => loadList(1, true);
+    } else {
+      items.forEach(it => {
+        const b = document.createElement("button");
+        b.className = "list-item";
+        b.innerHTML = "<b>" + escapeHtml(it.name) + "</b>" +
+          "<span class='badge num' dir='ltr'>" + escapeHtml(String(it.id)) + "</span>";
+        b.onclick = () => openChat(it.id);
+        $("#list").appendChild(b);
+      });
+    }
+    $("#listState").textContent = fa(d.total || 0) + " چت — صفحه‌ی " + fa(d.page) + " از " + fa(d.pages);
+    $("#prevBtn").disabled = (d.page || 1) <= 1;
+    $("#nextBtn").disabled = (d.page || 1) >= (d.pages || 1);
+    $("#pageInfo").textContent = "";
+  }).catch(() => { $("#list").innerHTML = ""; errorState("ارتباط با سرور برقرار نشد."); });
+}
+
+function errorState(msg) {
+  $("#list").insertAdjacentHTML("beforeend",
+    "<div class='card'><p>" + escapeHtml(msg) + "</p>" +
+    "<button class='btn ghost full' id='retryBtn2'>تلاش دوباره</button></div>");
+  const rb = $("#retryBtn2");
+  if (rb) rb.onclick = () => loadList(1, true);
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g,
+    c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+
+function openChat(id) {
+  api("/api/chat/" + id).then(r => {
+    const d = r.data || {};
+    if (r.status !== 200) { toast(d.error || "پیدا نشد", "err"); return; }
+    $("#dlgName").textContent = d.name;
+    $("#dlgId").textContent = d.id;
+    $("#dlgTotal").textContent = (d.total === null || d.total === undefined) ? "؟" : fa(d.total);
+    $("#startBtn").dataset.id = d.id;
+    const dlg = $("#chatDlg");
+    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+  });
+}
+
+let pollTimer = null;
+function showProgress() {
+  show("progress");
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(poll, 1500);
+  poll();
+}
+
+function poll() {
+  api("/api/progress").then(r => {
+    const d = r.data || {};
+    const prog = d.prog || {};
+    (d.msgs || []).slice(0, 3).forEach(m => toast(m, "warn"));
+    const job = d.job;
+    if (job) {
+      $("#progChat").textContent = job.chat;
+      const pct = Math.max(0, Math.min(100, prog.pct || 0));
+      $("#bar").style.width = pct + "%";
+      $("#barWrap").setAttribute("aria-valuenow", String(pct));
+      $("#progTxt").textContent = prog.txt || "";
+      $("#stDone").textContent = fa(prog.done || 0);
+      $("#stTotal").textContent = prog.total ? fa(prog.total) : "؟";
+      $("#stFiles").textContent = fa(prog.files || 0);
+      $("#stErr").textContent = fa(prog.errors || 0);
+      $("#phaseNote").textContent = (prog.phase === "zip") ? "در حال ساخت زیپ…" : "";
+      if (job.done) {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        showResult(job.result);
+      }
+    } else if (d.result) {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      showResult(d.result);
+    }
+    if (d.phase === "need_login" && (!job || job.done)) {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      showSetup({}, true);
+    }
+  }).catch(() => {});
+}
+
+function showResult(res) {
+  if (!res) { showMain(); return; }
+  const titles = { stop: "اسکرپ متوقف شد — فایل‌های دانلودشده می‌مانند.",
+                   disk: "فضای دیسک کم شد؛ متوقف شد.",
+                   empty: "چت خالی است." };
+  $("#resTitle").textContent = res.empty ? titles.empty :
+    (res.interrupted ? (titles[res.reason] || "خطا در اجرا.") : "✅ اسکرپ تمام شد");
+  $("#resStats").innerHTML =
+    stat("پیام", res.msgs) + stat("فایل", res.files) +
+    stat("ردشده", res.skipped) + stat("خطا", res.errors);
+  $("#resFolder").textContent = res.folder || "";
+  const zl = $("#zipLink");
+  if (res.zip_name) {
+    zl.hidden = false;
+    zl.href = "/api/zip?name=" + encodeURIComponent(res.zip_name);
+    zl.setAttribute("download", res.zip_name);
+  } else { zl.hidden = true; }
+  show("result");
+}
+
+function stat(label, v) {
+  return "<div class='stat'><p class='muted'>" + label + "</p><b class='num'>" +
+         fa(v || 0) + "</b></div>";
+}
+
+$("#setupForm").addEventListener("submit", e => {
+  e.preventDefault();
+  clearErrs();
+  const btn = $("#setupBtn");
+  busy(btn, true);
+  const body = {
+    api_id: norm($("#api_id").value.trim()),
+    api_hash: $("#api_hash").value.trim(),
+    phone: norm($("#phone").value.trim()),
+    enc_pw: $("#enc_pw").value,
+    enc_pw2: $("#enc_pw2").value,
+  };
+  api("/api/login/start", body).then(r => {
+    busy(btn, false);
+    if (r.status === 403) { toast((r.data && r.data.error) || "توکن نامعتبر", "err"); return; }
+    if (handleAuth(r, () => $("#setupForm").requestSubmit())) return;
+    if (!r.data || (!r.data.phase && !r.data.wait && !r.data.error)) toast("پاسخ نامعتبر", "err");
+  }).catch(() => { busy(btn, false); toast("ارتباط برقرار نشد", "err"); });
+});
+
+$("#codeForm").addEventListener("submit", e => {
+  e.preventDefault();
+  clearErrs();
+  const btn = $("#codeBtn");
+  busy(btn, true);
+  api("/api/login/code", { code: norm($("#code").value.trim()) }).then(r => {
+    busy(btn, false);
+    if (handleAuth(r, () => $("#codeForm").requestSubmit())) return;
+    toast((r.data && r.data.error) || "خطا", "err");
+  }).catch(() => { busy(btn, false); toast("ارتباط برقرار نشد", "err"); });
+});
+
+$("#twoFaForm").addEventListener("submit", e => {
+  e.preventDefault();
+  clearErrs();
+  api("/api/login/2fa", { password: $("#password").value }).then(r => {
+    if (handleAuth(r, () => $("#twoFaForm").requestSubmit())) return;
+    toast((r.data && r.data.error) || "خطا", "err");
+  }).catch(() => toast("ارتباط برقرار نشد", "err"));
+});
+
+$("#resendBtn").addEventListener("click", () => {
+  const btn = $("#resendBtn");
+  busy(btn, true, "…");
+  api("/api/login/resend").then(r => {
+    busy(btn, false);
+    if (r.data && r.data.wait) { countdown(r.data.wait); return; }
+    if (r.data && r.data.msg) toast(r.data.msg, "ok");
+  }).catch(() => busy(btn, false));
+});
+
+$$(".tab").forEach(t => t.addEventListener("click", () => {
+  $$(".tab").forEach(x => x.setAttribute("aria-selected", "false"));
+  t.setAttribute("aria-selected", "true");
+  listQ.cat = t.dataset.cat;
+  loadList(1);
+}));
+
+let qTimer = null;
+$("#q").addEventListener("input", () => {
+  if (qTimer) clearTimeout(qTimer);
+  qTimer = setTimeout(() => { listQ.q = $("#q").value.trim().toLowerCase(); loadList(1); }, 300);
+});
+
+$("#prevBtn").addEventListener("click", () => loadList((listQ.page || 1) - 1));
+$("#nextBtn").addEventListener("click", () => loadList((listQ.page || 1) + 1));
+$("#refreshBtn").addEventListener("click", () => loadList(1, true));
+
+$("#resolveForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const txt = $("#resolveInput").value.trim();
+  if (!txt) return;
+  api("/api/resolve", { text: norm(txt) }).then(r => {
+    if (r.status === 200 && r.data.item) { openChat(r.data.item.id); $("#resolveInput").value = ""; }
+    else setErr("resolve", (r.data && r.data.error) || "پیدا نشد");
+  });
+});
+
+$("#startBtn").addEventListener("click", () => {
+  const id = $("#startBtn").dataset.id;
+  if (!id) return;
+  const btn = $("#startBtn");
+  busy(btn, true);
+  api("/api/start", { id: parseInt(norm(id), 10) }).then(r => {
+    busy(btn, false);
+    if (r.status === 200 && r.data.ok) { $("#chatDlg").close(); showProgress(); return; }
+    toast((r.data && r.data.error) || "شروع نشد", "err");
+  });
+});
+$("#dlgClose").addEventListener("click", () => $("#chatDlg").close());
+
+$("#stopBtn").addEventListener("click", () => {
+  api("/api/stop").then(r => {
+    if (r.data && r.data.ok) { $("#stopBtn").disabled = true; $("#phaseNote").textContent = "در حال توقف…"; }
+  });
+});
+
+$("#backBtn").addEventListener("click", () => showMain());
+
+$("#settingsBtn").addEventListener("click", () => {
+  api("/api/settings").then(r => {
+    const d = r.data || {};
+    const s = d.settings || {};
+    $("#s_media").checked = !!s.media;
+    $("#s_zip").checked = !!s.zip;
+    $("#s_sidecar").checked = !!s.sidecar;
+    $("#s_max").value = s.max_mb ?? 0;
+    $("#s_speed").value = d.speed || "normal";
+    const dlg = $("#setDlg");
+    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+  });
+});
+$("#setClose").addEventListener("click", () => $("#setDlg").close());
+
+$("#setForm").addEventListener("submit", e => {
+  e.preventDefault();
+  api("/api/settings", {
+    media: $("#s_media").checked, zip: $("#s_zip").checked,
+    sidecar: $("#s_sidecar").checked, max_mb: norm($("#s_max").value.trim() || "0"),
+    speed: $("#s_speed").value,
+  }).then(r => {
+    if (r.status === 200) { toast("تنظیمات ذخیره شد", "ok"); $("#setDlg").close(); }
+    else toast((r.data && r.data.error) || "ذخیره نشد", "err");
+  });
+});
+
+$("#logoutBtn").addEventListener("click", () => {
+  $("#setDlg").close();
+  $("#confirmMsg").textContent = "خروج کامل: سشن محلی و بکاپ Drive هر دو حذف می‌شوند. مطمئنید؟";
+  const dlg = $("#confirmDlg");
+  if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+});
+$("#confirmNo").addEventListener("click", () => $("#confirmDlg").close());
+$("#confirmYes").addEventListener("click", () => {
+  $("#confirmDlg").close();
+  api("/api/logout").then(r => {
+    if (r.data && r.data.msg) toast(r.data.msg, "ok");
+    boot();
+  });
+});
+
+$("#themeBtn").addEventListener("click", () => {
+  const dark = document.documentElement.classList.toggle("dark");
+  try { localStorage.setItem("ts-theme", dark ? "dark" : "light"); } catch (e) {}
+});
+try { if (localStorage.getItem("ts-theme") === "dark") document.documentElement.classList.add("dark"); }
+catch (e) {}
+if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches &&
+    (function(){ try { return !localStorage.getItem("ts-theme"); } catch(e){ return false; } })()) {
+  document.documentElement.classList.add("dark");
+}
+
+boot();
+</script>
+</body>
+</html>"""
+
 
 if __name__ == "__main__":
     main()
