@@ -689,6 +689,34 @@ def api_zip():
                      download_name=os.path.basename(path))
 
 
+@web.route("/api/zips")
+def api_zips():
+    """لیست زیپ‌های قبلی داخل app.zips — فیکس WB-10: بعد از ریستارتِ سرور هم
+    دانلود از کارت «حساب» ممکن است؛ هر نام با گارد _zip_path بررسی می‌شود."""
+    bad = _bad_token()
+    if bad:
+        return bad
+    r = _require_ready()
+    if r:
+        return r
+    out = []
+    try:
+        names = sorted(os.listdir(STATE["app"].zips))
+    except Exception:
+        names = []
+    for n in names:
+        path = _zip_path(STATE["app"].zips, n)
+        if path is None or not os.path.isfile(path):
+            continue
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        out.append({"name": n, "size": st.st_size, "mtime": int(st.st_mtime)})
+    out.sort(key=lambda z: -z["mtime"])          # جدیدترین زیپ اول
+    return jsonify({"zips": out})
+
+
 @web.route("/api/settings")
 def api_settings_get():
     """همان ۵ گزینه‌ی settings_screen + speed (قابلیت WEB-04)."""
@@ -1005,6 +1033,11 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
     <a id="zipLink" class="btn full" hidden>دانلود زیپ</a>
     <button class="btn ghost full" id="backBtn">بازگشت به چت‌ها</button>
   </div>
+  <!-- فیکس WB-10: زیپ‌های اسکرپ‌های قبلی هم همین‌جا در دسترس‌اند -->
+  <div class="card" id="prevZipsCard" hidden>
+    <h2>زیپ‌های قبلی</h2>
+    <div id="prevZips"></div>
+  </div>
 </section>
 
 <!-- فیکس WB-13: تنظیمات به‌جای دیالوگ، نمای تمام‌صفحه با کارت‌های گروهی -->
@@ -1048,6 +1081,12 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
       <p class="muted" id="speedHint" aria-live="polite"></p>
     </div>
   </form>
+  <!-- فیکس WB-10: بعد از ریستارت سرور، زیپ‌های قبلی از این کارت قابل دانلود‌اند -->
+  <div class="card" id="accZipsCard" hidden>
+    <h2>زیپ‌های قبلی</h2>
+    <p class="muted">خروجی اسکرپ‌های گذشته — شامل دوره‌های قبل از ریستارت سرور</p>
+    <div id="accZips"></div>
+  </div>
   <div class="card">
     <h2>حساب</h2>
     <p id="accWho"></p>
@@ -1338,11 +1377,33 @@ function showResult(res) {
     zl.setAttribute("download", res.zip_name);
   } else { zl.hidden = true; }
   show("result");
+  loadZips($("#prevZips"), $("#prevZipsCard"));   // فیکس WB-10
 }
 
 function stat(label, v) {
   return "<div class='stat'><p class='muted'>" + label + "</p><b class='num'>" +
          fa(v || 0) + "</b></div>";
+}
+
+// فیکس WB-10: رندر مشترکِ لیست زیپ‌های قبلی — نمای نتیجه + کارت «حساب» در تنظیمات
+function fmtSize(n) {
+  n = n || 0;
+  if (n >= 1073741824) return fa((n / 1073741824).toFixed(1)) + " گیگابایت";
+  if (n >= 1048576) return fa((n / 1048576).toFixed(1)) + " مگابایت";
+  if (n >= 1024) return fa((n / 1024).toFixed(1)) + " کیلوبایت";
+  return fa(n) + " بایت";
+}
+function loadZips(box, card) {
+  api("/api/zips").then(r => {
+    const zs = (r.data && r.data.zips) || [];
+    if (r.status !== 200 || !zs.length) { if (card) card.hidden = true; return; }
+    box.innerHTML = zs.map(z =>
+      "<a class='btn ghost full' href='/api/zip?name=" + encodeURIComponent(z.name) +
+      "&t=" + encodeURIComponent(TOKEN) + "' download='" + escapeHtml(z.name) + "'>" +
+      escapeHtml(z.name) + " <span class='badge num' dir='ltr'>" + fmtSize(z.size) + "</span></a>"
+    ).join("");
+    if (card) card.hidden = false;
+  }).catch(() => { if (card) card.hidden = true; });
 }
 
 $("#setupForm").addEventListener("submit", e => {
@@ -1503,6 +1564,7 @@ function showSettings() {
                     : "بکاپ سشن روی Drive: فعال")
       : "بکاپ سشن: غیرفعال (Drive یا کلید رمز TS_ENC_KEY در دسترس نیست)";
     show("settings");
+    loadZips($("#accZips"), $("#accZipsCard"));   // فیکس WB-10: بعد از ریستارت هم قابل دانلود
   }).catch(() => toast("ارتباط با سرور برقرار نشد", "err"));
 }
 $("#settingsBtn").addEventListener("click", showSettings);
