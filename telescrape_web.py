@@ -1373,5 +1373,31 @@ boot();
 </html>"""
 
 
+# ═══════════════ WEB-06: سخت‌افزاری و امنیت ═══════════════
+
+def _check_token():
+    """نسخه‌ی سخت‌گیرانه — هر POST باید هدر X-TS-Token با token سرور داشته باشد (قابلیت WEB-06).
+    تک‌کاربره و in-memory؛ بدون وابستگی به Flask-WTF. تعریفِ بالا (اسکلت) را جایگزین می‌کند."""
+    sent = str(request.headers.get("X-TS-Token", ""))
+    return _secrets.compare_digest(sent.encode("utf-8", "replace")[:128],
+                                   str(STATE["token"]).encode("utf-8"))
+
+
+@web.errorhandler(404)
+def _not_found(e):
+    """مسیر غایب — پاسخ تمیز و دوستانه، نه 400 خام (قابلیت WEB-06)."""
+    if request.path.startswith("/api/"):
+        return jsonify({"error": wt("not_found_404")}), 404
+    return PAGE, 404
+
+
+@web.errorhandler(500)
+def _server_error(e):
+    """خطای سرور — بدون leak جزئیات/secret؛ پیام تمیز (قابلیت WEB-06)."""
+    if request.path.startswith("/api/"):
+        return jsonify({"error": wt("server_500")}), 500
+    return PAGE, 500
+
+
 if __name__ == "__main__":
     main()
