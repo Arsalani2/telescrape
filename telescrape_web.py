@@ -694,24 +694,29 @@ def api_settings_post():
         return bad
     data = request.get_json(silent=True) or {}
     app = _get_app()
-    cfg = app.settings
+    # فیکس WB-04: هیچ mutation قبل از پایانِ موفقِ همه‌ی اعتبارسنجی‌ها —
+    # قبلاً فیلد اول در حافظه عوض می‌شد و فیلد نامعتبرِ بعدی 400 می‌داد → واگرایی runtime/دیسک.
+    new = dict(app.settings)
     if "media" in data:
-        cfg["media"] = bool(data["media"])
+        new["media"] = bool(data["media"])
     if "zip" in data:
-        cfg["zip"] = bool(data["zip"])
+        new["zip"] = bool(data["zip"])
     if "sidecar" in data:
-        cfg["sidecar"] = bool(data["sidecar"])
+        new["sidecar"] = bool(data["sidecar"])
     if "max_mb" in data:
         try:
-            cfg["max_mb"] = max(0, int(str(data["max_mb"]).translate(ts._DIGITS)))
+            new["max_mb"] = max(0, int(str(data["max_mb"]).translate(ts._DIGITS)))
         except (TypeError, ValueError):
             return jsonify({"error": wt("invalid_input"), "field": "max_mb"}), 400
+    speed = app.speed
     if "speed" in data:
         if data["speed"] not in ts.PROFILES:
             return jsonify({"error": wt("invalid_input"), "field": "speed"}), 400
-        app.speed = data["speed"]
+        speed = data["speed"]
+    app.settings.update(new)                    # اعمال اتمیک فقط بعد از موفقیت همه
+    app.speed = speed
     app.save_settings()
-    return jsonify({"ok": True, "settings": cfg, "speed": app.speed})
+    return jsonify({"ok": True, "settings": app.settings, "speed": app.speed})
 
 
 @web.route("/api/logout", methods=["POST"])
