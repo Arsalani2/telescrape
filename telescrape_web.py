@@ -1430,3 +1430,303 @@ $("#startBtn").addEventListener("click", () => {
   const btn = $("#startBtn");
   busy(btn, true);
   api("/api/start", { id: parseInt(norm(id), 10) }).then(r => {
+    busy(btn, false);
+    if (r.status === 200 && r.data.ok) { $("#chatDlg").close(); showProgress(); return; }
+    toast((r.data && r.data.error) || "شروع نشد", "err");
+  });
+});
+$("#dlgClose").addEventListener("click", () => $("#chatDlg").close());
+
+$("#stopBtn").addEventListener("click", () => {
+  api("/api/stop").then(r => {
+    if (r.data && r.data.ok) { $("#stopBtn").disabled = true; $("#phaseNote").textContent = "در حال توقف…"; }
+  });
+});
+
+$("#backBtn").addEventListener("click", () => showMain());
+
+// فیکس WB-13: تنظیمات = نمای تمام‌صفحه با کارت‌های مدیا/خروجی/سرعت/حساب،
+// سوییچ‌های استایل‌دار، سرعتِ قطعه‌ای از پاسخ سرور و نوار ذخیره‌ی sticky
+const SPEED_LABEL = {gentle: "آرام", normal: "عادی", fast: "سریع"};
+const SPEED_HINT = {
+  gentle: "امن‌ترین — توقف‌های طولانی‌تر؛ کند اما کم‌ریسک",
+  normal: "پیشنهادی — تعادلِ سرعت و امنیت",
+  fast: "سریع‌ترین — ریسک محدودیت FloodWait بیشتر",
+};
+function buildSpeedSeg(speeds, current) {
+  const seg = $("#s_speed");
+  seg.innerHTML = "";
+  (speeds && speeds.length ? speeds : ["gentle", "normal", "fast"]).forEach(sp => {
+    const lab = document.createElement("label");
+    lab.className = "seg-opt";
+    const inp = document.createElement("input");
+    inp.type = "radio"; inp.name = "s_speed"; inp.value = sp;
+    inp.checked = sp === current;
+    inp.addEventListener("change", speedHintUpdate);
+    const spn = document.createElement("span");
+    spn.textContent = SPEED_LABEL[sp] || sp;
+    lab.append(inp, spn);
+    seg.appendChild(lab);
+  });
+}
+function speedHintUpdate() {
+  const sel = document.querySelector("#s_speed input:checked");
+  $("#speedHint").textContent = sel ? (SPEED_HINT[sel.value] || "") : "";
+}
+function mbHintUpdate() {
+  const v = Math.max(0, parseInt(norm($("#s_max").value.trim() || "0"), 10) || 0);
+  $("#mbHint").textContent = v > 0
+    ? "فایل‌های بزرگ‌تر از " + fa(v) + " مگابایت دانلود نمی‌شوند."
+    : "بدون سقف — همه‌ی فایل‌ها با هر حجمی دانلود می‌شوند.";
+}
+function mbToggle() {
+  $("#mbWrap").hidden = !$("#s_limit").checked;
+  mbHintUpdate();
+}
+function showSettings() {
+  clearErrs();
+  Promise.all([api("/api/settings"), api("/api/state")]).then(([rs, rt]) => {
+    const d = rs.data || {};
+    const s = d.settings || {};
+    $("#s_media").checked = !!s.media;
+    $("#s_zip").checked = !!s.zip;
+    $("#s_sidecar").checked = !!s.sidecar;
+    const mb = Math.max(0, parseInt(norm(s.max_mb ?? 0), 10) || 0);
+    $("#s_limit").checked = mb > 0;
+    $("#s_max").value = mb > 0 ? String(mb) : "100";
+    mbToggle();
+    buildSpeedSeg(d.speeds, d.speed || "normal");
+    speedHintUpdate();
+    const t = rt.data || {};
+    $("#accWho").textContent = t.who ? "حساب: " + t.who : "";
+    $("#accBackup").textContent = t.bk_active
+      ? (t.restored ? "بکاپ سشن روی Drive: فعال — این سشن از بکاپ بازیابی شده بود"
+                    : "بکاپ سشن روی Drive: فعال")
+      : "بکاپ سشن: غیرفعال (Drive یا کلید رمز TS_ENC_KEY در دسترس نیست)";
+    show("settings");
+  }).catch(() => toast("ارتباط با سرور برقرار نشد", "err"));
+}
+$("#settingsBtn").addEventListener("click", showSettings);
+$("#setBack").addEventListener("click", () => showMain());
+$("#s_limit").addEventListener("change", mbToggle);
+$("#s_max").addEventListener("input", mbHintUpdate);
+
+$("#setForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const sel = document.querySelector("#s_speed input:checked");
+  api("/api/settings", {
+    media: $("#s_media").checked, zip: $("#s_zip").checked,
+    sidecar: $("#s_sidecar").checked,
+    max_mb: $("#s_limit").checked ? norm($("#s_max").value.trim() || "0") : "0",
+    speed: sel ? sel.value : "",
+  }).then(r => {
+    if (r.status === 200) { toast("تنظیمات ذخیره شد", "ok"); showMain(); }
+    else if (r.data && r.data.field === "max_mb") setErr("max", r.data.error);
+    else toast((r.data && r.data.error) || "ذخیره نشد", "err");
+  });
+});
+
+$("#logoutBtn").addEventListener("click", () => {
+  $("#confirmMsg").textContent = "خروج کامل: سشن محلی و بکاپ Drive هر دو حذف می‌شوند. مطمئنید؟";
+  const dlg = $("#confirmDlg");
+  if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+});
+$("#confirmNo").addEventListener("click", () => $("#confirmDlg").close());
+$("#confirmYes").addEventListener("click", () => {
+  $("#confirmDlg").close();
+  api("/api/logout").then(r => {
+    if (r.data && r.data.msg) toast(r.data.msg, "ok");
+    boot();
+  });
+});
+
+$("#themeBtn").addEventListener("click", () => {
+  const dark = document.documentElement.classList.toggle("dark");
+  try { localStorage.setItem("ts-theme", dark ? "dark" : "light"); } catch (e) {}
+});
+try { if (localStorage.getItem("ts-theme") === "dark") document.documentElement.classList.add("dark"); }
+catch (e) {}
+if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches &&
+    (function(){ try { return !localStorage.getItem("ts-theme"); } catch(e){ return false; } })()) {
+  document.documentElement.classList.add("dark");
+}
+
+boot();
+</script>
+</body>
+</html>"""
+
+
+# ═══════════════ WEB-06: سخت‌افزاری و امنیت ═══════════════
+
+def _check_token():
+    """نسخه‌ی سخت‌گیرانه — هر POST باید هدر X-TS-Token با token سرور داشته باشد (قابلیت WEB-06).
+    تک‌کاربره و in-memory؛ بدون وابستگی به Flask-WTF. تعریفِ بالا (اسکلت) را جایگزین می‌کند."""
+    sent = str(request.headers.get("X-TS-Token", ""))
+    return _secrets.compare_digest(sent.encode("utf-8", "replace")[:128],
+                                   str(STATE["token"]).encode("utf-8"))
+
+
+@web.errorhandler(404)
+def _not_found(e):
+    """مسیر غایب — پاسخ تمیز و دوستانه، نه 400 خام (قابلیت WEB-06)."""
+    if request.path.startswith("/api/"):
+        return jsonify({"error": wt("not_found_404")}), 404
+    return PAGE, 404
+
+
+@web.errorhandler(500)
+def _server_error(e):
+    """خطای سرور — بدون leak جزئیات/secret؛ پیام تمیز (قابلیت WEB-06)."""
+    if request.path.startswith("/api/"):
+        return jsonify({"error": wt("server_500")}), 500
+    return PAGE, 500
+
+
+# ═══════════════ WEB-07: --selftest (هلپرهای خالص، بدون شبکه) ═══════════════
+
+def _selftest():
+    """تست دودِ هلپرهای خالصِ لایه‌ی وب — python telescrape_web.py --selftest
+    پوشش: ارقام فارسی، ولیدیشن creds، گارد زیپ، چک token، گذارهای ماشین حالت لاگین با کلاینت فیک."""
+    import tempfile
+
+    ok = fail = 0
+
+    def eq(got, want, label):
+        nonlocal ok, fail
+        if got == want:
+            ok += 1
+        else:
+            fail += 1
+            print(f"FAIL {label}: got {got!r}, want {want!r}")
+
+    # _to_int: ارقام فارسی/عربی مثل ورودی موبایل
+    eq(_to_int("۱۲۳"), 123, "int.fa")
+    eq(_to_int("٤٥"), 45, "int.ar")
+    eq(_to_int(" 42 "), 42, "int.space")
+    eq(_to_int("x", 7), 7, "int.fallback")
+    eq(_to_int(None, 9), 9, "int.none")
+
+    # فیکس WB-01: پرچم IN_COLAB موتور باید با تشخیص واقعی هم‌خوان بماند
+    eq(ts.IN_COLAB, _is_colab(), "colab.flagsync")
+
+    # _valid_api_id / _valid_hash — همان قواعد get_creds موتور (قابلیت WEB-03)
+    eq(_valid_api_id("12345"), 12345, "id.ok")
+    eq(_valid_api_id("۰"), None, "id.zero")
+    eq(_valid_api_id("abc"), None, "id.nan")
+    h = "0123456789abcdef0123456789abcdef"
+    eq(_valid_hash(h), h, "hash.ok")
+    eq(_valid_hash(h.upper()), h.upper(), "hash.upper")
+    eq(_valid_hash("short"), None, "hash.short")
+    eq(_valid_hash(None), None, "hash.none")
+    eq(_valid_hash("  " + h + "  "), h, "hash.strip")
+
+    # _zip_path: گارد زیپ — فقط نامِ ساده داخل zdir (قابلیت WEB-04/WEB-06)
+    with tempfile.TemporaryDirectory() as tmp:
+        eq(_zip_path(tmp, "chat_1_1_2.zip"),
+           os.path.join(os.path.realpath(tmp), "chat_1_1_2.zip"), "zip.ok")
+        eq(_zip_path(tmp, ""), None, "zip.empty")
+        eq(_zip_path(tmp, None), None, "zip.none")
+        eq(_zip_path(tmp, "../etc/passwd"),
+           os.path.join(os.path.realpath(tmp), "passwd"), "zip.basename")
+        out = os.path.join(tmp, "outside.zip")
+        with open(out, "w") as f:
+            f.write("x")
+        link = os.path.join(tmp, "link.zip")
+        os.symlink(out, link)                  # symlink بیرون‌نما → رد با realpath
+        eq(_zip_path(tmp, "link.zip"), None, "zip.symlink")
+
+    # _res_payload: شکل امنِ نتیجه برای JSON (قابلیت WEB-04)
+    eq(_res_payload(None), None, "res.none")
+    r = _res_payload({"folder": "/f", "zip": "/f/x.zip", "empty": False,
+                      "interrupted": False, "reason": "", "msgs": 3,
+                      "files": 2, "skipped": 1, "errors": 0})
+    eq(r["zip_name"], "x.zip", "res.zipname")
+    eq(r["msgs"], 3, "res.msgs")
+    eq(_res_payload({})["empty"], False, "res.defaults")
+    eq(_res_payload({})["msgs"], 0, "res.zero")
+
+    # فیکس WB-05: بافر seq‌دار — پیام‌ها گم نمی‌شوند و فیلتر since فقط جدیدها را می‌دهد
+    saved_msgs = list(_MSGS)
+    _MSGS.clear()
+    ts._msgs.clear()
+    try:
+        for m in ("m1", "m2"):
+            ts._msgs.append(m)
+        _drain_msgs()
+        eq([t for _, t in _MSGS], ["m1", "m2"], "msg.drain")
+        ts._msgs.append("m3")
+        _drain_msgs()
+        eq([s for s, _ in _MSGS], [1, 2, 3], "msg.seq")
+        eq([t for s, t in _MSGS if s > 2], ["m3"], "msg.since")
+        eq(_drain_msgs(), [], "msg.empty_drain")
+    finally:
+        _MSGS.clear()
+        _MSGS.extend(saved_msgs)
+        ts._msgs.clear()
+
+    # _check_token (نسخه‌ی سخت WEB-06): هدر درست/غلط/غایب
+    with web.test_request_context("/", headers={"X-TS-Token": STATE["token"]}):
+        eq(_check_token(), True, "token.ok")
+    with web.test_request_context("/", headers={"X-TS-Token": "deadbeef"}):
+        eq(_check_token(), False, "token.bad")
+    with web.test_request_context("/"):
+        eq(_check_token(), False, "token.missing")
+
+    # ماشین حالت لاگین با کلاینت فیک — بدون شبکه (قابلیت WEB-03/WEB-07)
+    class _FakeMe:
+        id = 42
+
+    class _FakeClient:
+        def __init__(self, authorized):
+            self.authorized = authorized
+            self.calls = []
+
+        async def connect(self):
+            self.calls.append("connect")
+
+        async def is_user_authorized(self):
+            return self.authorized
+
+        async def send_code_request(self, phone):
+            self.calls.append(("code", phone))
+
+        async def get_me(self):
+            return _FakeMe()
+
+        async def iter_dialogs(self):
+            return
+            yield
+
+    saved = dict(STATE)
+    oldcwd = os.getcwd()
+    try:
+        os.chdir(tempfile.mkdtemp())            # App() پوشه‌های محلی می‌سازد
+        STATE["app"] = ts.App()
+        STATE["api_id"] = 1
+        STATE["phone"] = "+989121234567"
+        with web.app_context():
+            fc = _FakeClient(True)             # سشن معتبر → مستقیم ready
+            STATE["client"] = fc
+            STATE["phase"] = "setup"
+            rv = _connect_and_flow()
+            eq(rv.get_json()["phase"], "ready", "flow.authorized")
+            eq(STATE["phase"], "ready", "flow.phase_ready")
+            fc2 = _FakeClient(False)           # لاگین تازه → send_code → need_code
+            STATE["client"] = fc2
+            STATE["phase"] = "setup"
+            rv2 = _connect_and_flow()
+            eq(rv2.get_json()["phase"], "need_code", "flow.fresh")
+            eq(STATE["phase"], "need_code", "flow.phase_code")
+            eq(fc2.calls[-1], ("code", "+989121234567"), "flow.send")
+    finally:
+        os.chdir(oldcwd)
+        STATE.clear()
+        STATE.update(saved)
+
+    print(f"self-test: {ok} passed, {fail} failed")
+    raise SystemExit(1 if fail else 0)
+
+
+if __name__ == "__main__":
+    main()
