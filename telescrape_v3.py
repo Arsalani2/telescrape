@@ -1346,6 +1346,20 @@ def settings_screen(app, client, api_id):
         app.save_settings()
 
 
+def _login_wait(sec):       # فیکس NB-04: صبرِ FloodWait لاگین — شمارش معکوس + قابل قطع
+    """Blocking FloodWait wait that keeps the UI alive: countdown via status(), Ctrl+C aborts."""
+    end = time.time() + max(0.0, sec)
+    while True:
+        left = end - time.time()
+        if left <= 0:
+            return
+        try:
+            time.sleep(min(0.5, left))
+        except KeyboardInterrupt:
+            raise LoginAbort()
+        status(f"⏳ {int(left) + 1}s")
+
+
 def login(client, phone, pwd2fa):
     """Interactive login, step by step from synchronous code. Raises LoginAbort on give-up."""
     for _ in range(3):
@@ -1357,7 +1371,7 @@ def login(client, phone, pwd2fa):
                 say(t("flood_login", s=e.seconds))
                 raise LoginAbort()
             say(t("flood_login", s=e.seconds))
-            time.sleep(e.seconds + 2)
+            _login_wait(e.seconds + 2)
         except Exception as e:
             say(t("login_err", e=short_err(e)))
             raise LoginAbort()
@@ -1377,7 +1391,7 @@ def login(client, phone, pwd2fa):
                     say(t("flood_login", s=e.seconds))
                     raise LoginAbort()
                 say(t("flood_login", s=e.seconds))
-                time.sleep(e.seconds + 2)
+                _login_wait(e.seconds + 2)
             except Exception as e:
                 say(t("login_err", e=short_err(e)))
                 phone = norm_phone(ask(t("phone")))
@@ -1407,7 +1421,7 @@ def login(client, phone, pwd2fa):
                 say(t("flood_login", s=e.seconds))
                 raise LoginAbort()
             say(t("flood_login", s=e.seconds))
-            time.sleep(e.seconds + 2)
+            _login_wait(e.seconds + 2)
         except Exception as e:
             say(t("login_err", e=short_err(e)))
     if not need_pwd:
@@ -1426,7 +1440,7 @@ def login(client, phone, pwd2fa):
                 say(t("flood_login", s=e.seconds))
                 raise LoginAbort()
             say(t("flood_login", s=e.seconds))
-            time.sleep(e.seconds + 2)
+            _login_wait(e.seconds + 2)
         except Exception as e:
             say(t("login_err", e=short_err(e)))
         pw = None
