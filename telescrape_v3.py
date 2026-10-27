@@ -1502,3 +1502,486 @@ def start_chat(app, client, item):
         return
     say(t("starting"))
     try:
+        total = run(count_msgs(client, item["entity"]))
+    except KeyboardInterrupt:
+        return                      # back to the main menu, don't kill the whole app
+    print(hr())
+    say(t("chat_head", name=short(item["name"], 60), id=item["id"], total="?" if total is None else total))
+    print(hr())
+    if ask(t("start_q")) == "0":
+        return
+    say(t("starting"))
+    try:
+        res = run(scrape(app, client, item, app.speed, total_hint=total), stoppable=True)
+    except KeyboardInterrupt:
+        say(t("interrupted"))
+        return
+    except Exception as e:
+        say(t("run_err", e=short_err(e)))
+        pause()
+        return
+    report(res)
+    offer_download(res.get("zip"))
+    pause()
+
+
+def settings_screen(app, client, api_id):
+    """Returns 'logout' when the session was deleted, else None."""
+    cfg = app.settings
+    onoff = lambda v: t("on") if v else t("off")
+    order = ["gentle", "normal", "fast"]
+    while True:
+        clear()
+        print(hr())
+        say(t("set_head"))
+        print(hr())
+        say(t("set1", v=onoff(cfg["media"])))
+        say(t("set2", v=cfg["max_mb"]))
+        say(t("set3", v=onoff(cfg["zip"])))
+        say(t("set4", v=onoff(cfg["sidecar"])))
+        say(t("set5", v=t("sp_" + app.speed)))
+        say(t("set6"))
+        say(t("set0"))
+        c = ask(t("choose"))
+        if c == "1":
+            cfg["media"] = not cfg["media"]
+        elif c == "2":
+            raw = ask(t("mb_q"))
+            if raw.isdigit():
+                cfg["max_mb"] = int(raw)
+        elif c == "3":
+            cfg["zip"] = not cfg["zip"]
+        elif c == "4":
+            cfg["sidecar"] = not cfg["sidecar"]
+        elif c == "5":
+            app.speed = order[(order.index(app.speed) + 1) % 3] if app.speed in order else "normal"
+        elif c == "6":
+            if ask(t("logout_q")).lower() == "y":
+                ok = False      # فیکس NB-11: log_out روی شکست False برمی‌گرداند — نتیجه چک شود
+                try:
+                    ok = bool(run(client.log_out()))
+                except Exception:
+                    ok = False
+                app.delete_session(api_id)
+                # فیکس NB-13: خروجِ کامل = سشن محلی + بکاپ Drive؛ شکست حذف = هشدار، نه پیام موفقیت
+                try:
+                    if os.path.exists(app.backup_path(api_id)):
+                        _rm(app.backup_path(api_id))
+                        say(t("backup_deleted"))
+                except Exception:
+                    say(t("backup_left", p=app.backup_path(api_id)))
+                say(t("logged_out") if ok else t("logout_partial"))
+                return "logout"
+        elif c == "0":
+            app.save_settings()
+            return None
+        app.save_settings()
+
+
+def _login_wait(sec):       # فیکس NB-04: صبرِ FloodWait لاگین — شمارش معکوس + قابل قطع
+    """Blocking FloodWait wait that keeps the UI alive: countdown via status(), Ctrl+C aborts."""
+    end = time.time() + max(0.0, sec)
+    while True:
+        left = end - time.time()
+        if left <= 0:
+            return
+        try:
+            time.sleep(min(0.5, left))
+        except KeyboardInterrupt:
+            raise LoginAbort()
+        status(f"⏳ {int(left) + 1}s")
+
+
+def login(client, phone, pwd2fa):
+    """Interactive login, step by step from synchronous code. Raises LoginAbort on give-up."""
+    for _ in range(3):
+        try:
+            run(client.connect())
+            break
+        except FloodWaitError as e:
+            if e.seconds > 600:
+                say(t("flood_login", s=e.seconds))
+                raise LoginAbort()
+            say(t("flood_login", s=e.seconds))
+            _login_wait(e.seconds + 2)
+        except Exception as e:
+            say(t("login_err", e=short_err(e)))
+            raise LoginAbort()
+    else:
+        raise LoginAbort()
+    if run(client.is_user_authorized()):
+        return
+
+    def send():
+        nonlocal phone
+        if not phone:              # فیکس NB-12: phone فقط وقتی واقعاً لاگین لازم است پرسیده می‌شود
+            phone = norm_phone(ask(t("phone")))
+        for _ in range(5):
+            try:
+                run(client.send_code_request(phone))
+                return
+            except FloodWaitError as e:
+                if e.seconds > 600:
+                    say(t("flood_login", s=e.seconds))
+                    raise LoginAbort()
+                say(t("flood_login", s=e.seconds))
+                _login_wait(e.seconds + 2)
+            except Exception as e:
+                say(t("login_err", e=short_err(e)))
+                phone = norm_phone(ask(t("phone")))
+        raise LoginAbort()
+
+    send()
+    need_pwd = False
+    for _ in range(6):
+        code = ask(t("code")).replace(" ", "")
+        if code.lower() == "r":
+            send()
+            say(t("code_resent"))
+            continue
+        try:
+            run(client.sign_in(phone, code))
+            return
+        except SessionPasswordNeededError:
+            need_pwd = True
+            break
+        except PhoneCodeExpiredError:
+            send()
+            say(t("code_resent"))
+        except PhoneCodeInvalidError:
+            say(t("login_err", e="invalid code"))
+        except FloodWaitError as e:
+            if e.seconds > 600:
+                say(t("flood_login", s=e.seconds))
+                raise LoginAbort()
+            say(t("flood_login", s=e.seconds))
+            _login_wait(e.seconds + 2)
+        except Exception as e:
+            say(t("login_err", e=short_err(e)))
+    if not need_pwd:
+        raise LoginAbort()
+    pw = pwd2fa
+    for _ in range(5):
+        if not pw:
+            pw = getpass.getpass(t("pwd"))
+        try:
+            run(client.sign_in(password=pw))
+            return
+        except PasswordHashInvalidError:
+            say(t("login_err", e="wrong password"))
+        except FloodWaitError as e:
+            if e.seconds > 600:
+                say(t("flood_login", s=e.seconds))
+                raise LoginAbort()
+            say(t("flood_login", s=e.seconds))
+            _login_wait(e.seconds + 2)
+        except Exception as e:
+            say(t("login_err", e=short_err(e)))
+        pw = None
+    raise LoginAbort()
+
+
+async def make_client(session, api_id, api_hash):
+    c = TelegramClient(session, api_id, api_hash, connection_retries=10, retry_delay=3,
+                       request_retries=5, timeout=30, auto_reconnect=True)
+    # False -> Telethon never sleeps through a FloodWait silently: every limit reaches our
+    # notify/Throttle/nap path, user messages stay visible and STOP stays responsive.
+    c.flood_sleep_threshold = False
+    return c
+
+
+async def _disconnect(client):
+    # Telethon's disconnect() looks up the *running* loop, so it must be called from the loop's thread.
+    r = client.disconnect()
+    if asyncio.iscoroutine(r) or isinstance(r, asyncio.Future):
+        await r
+
+
+async def _get_me(client):        # فیکس NB-09: get_me با timeout و retry — hiccup بعد از لاگین دیگر fatal نیست
+    last = None
+    for _ in range(3):
+        try:
+            return await asyncio.wait_for(client.get_me(), 20)
+        except Exception as e:
+            last = e
+            await asyncio.sleep(2)
+    raise last
+
+
+def _cleanup_previous_session():
+    """Re-running the Colab cell re-executes this module, so module globals reset and the
+    previous client/loop become unreachable. We therefore keep the reference on the sys
+    module (which survives re-execution) and close the old client before making a new one —
+    two live clients on one SQLite session file risk 'database is locked'."""
+    prev = getattr(sys, "_telescrape_prev", None)
+    if not prev:
+        return
+    sys._telescrape_prev = None
+    client, loop = prev
+    try:
+        asyncio.run_coroutine_threadsafe(_disconnect(client), loop).result(timeout=30)
+    except Exception:
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+    try:
+        loop.call_soon_threadsafe(loop.stop)
+    except Exception:
+        pass
+    say(t("prev_closed"))
+
+
+def app_main():
+    app = App()
+    print(hr())
+    say(t("title"))
+    say(t("hint"))
+    api_id, api_hash, phone, pwd2fa, from_secrets = get_creds()
+    if from_secrets:
+        app.cleanup_legacy()
+    _cleanup_previous_session()
+    sess = app.session_path(api_id) + ".session"
+    bk_on = backup_active()             # فیکس NB-12: فقط در Colab + Drive + cryptography
+    restored = False
+    if bk_on and not _session_ok(sess) and os.path.exists(app.backup_path(api_id)):
+        restored = restore_session_backup(app.backup_path(api_id), sess)   # فیکس NB-12: restore قبل از ساخت کلاینت
+    if bk_on and not _session_ok(sess) \
+            and not os.path.exists(app.backup_path(api_id)):   # فیکس NB-14: مهاجرت اختیاری سشن خام قدیمی Drive
+        legacy = os.path.join(app.base, "session", f"tg_{api_id}.session")
+        if os.path.exists(legacy):
+            try:
+                if ask(t("legacy_import_q")).lower() in ("", "y"):
+                    shutil.copyfile(legacy, sess)
+                    _chmod(sess, 0o600)
+                    say(t("legacy_import_ok"))
+            except Exception as e:
+                say(t("legacy_import_fail", e=short_err(e)))
+    client = run(make_client(app.session_path(api_id), api_id, api_hash))
+    sys._telescrape_prev = (client, _BG["loop"])   # survives cell re-runs (kept on sys)
+    app.lock_session(api_id)          # 600 from the moment the file exists, before any login step
+    try:
+        login(client, phone, pwd2fa)
+        app.lock_session(api_id)
+        me = run(_get_me(client))     # فیکس NB-09
+        who = utils.get_display_name(me) or str(me.id)
+        if restored:                  # فیکس NB-12: هویت حسابِ restore‌شده صریح چاپ شود (دام حساب اشتباه)
+            say(t("restore_ok", name=who))
+        else:
+            say(t("login_ok", name=who))
+        if bk_on and not restored:     # فیکس NB-12: بعد از ورود موفق، بکاپ رمزنگاری‌شده روی Drive
+            try:
+                pw = get_backup_password(confirm=True)
+                if pw and make_session_backup(sess, app.backup_path(api_id), pw):
+                    say(t("backup_ok", p=app.backup_path(api_id)))
+                elif pw is None:
+                    say(t("backup_skip", e="no password"))
+            except Exception as e:
+                say(t("backup_skip", e=short_err(e)))
+        say(t("loading"))
+        items = run(load_dialogs(client))
+
+        cats = {"1": ("channel", "m_channels"), "2": ("group", "m_groups"),
+                "3": ("private", "m_private"), "4": ("bot", "m_bots")}
+        while True:
+            clear()
+            print(hr())
+            say(f"{t('title')} | {short(who, 14)}")
+            print(hr())
+            for k, (cat, key) in cats.items():
+                say(f"{k}) {t(key)} ({sum(1 for i in items if i['cat'] == cat)})")
+            say(f"5) {t('m_all')} ({len(items)})")
+            say(f"6) {t('m_manual')}")
+            say(f"7) {t('m_save')}")
+            say(f"8) {t('m_refresh')}")
+            say(f"9) {t('m_settings')}")
+            say(f"0) {t('m_exit')}")
+            c = ask(t("choose"))
+
+            if c in cats or c == "5":
+                if c == "5":
+                    sub, title = items, t("m_all")
+                else:
+                    sub = [i for i in items if i["cat"] == cats[c][0]]
+                    title = t(cats[c][1])
+                chosen = pick_from_list(title, sub, max(5, int(PER_PAGE)))
+                if chosen:
+                    start_chat(app, client, chosen)
+            elif c == "6":
+                found = run(resolve(client, ask(t("manual_q")), items))
+                if found:
+                    start_chat(app, client, found)
+                else:
+                    say(t("not_found"))
+                    pause()
+            elif c == "7":
+                say(t("saved_list", p=export_list(app, items)))
+                pause()
+            elif c == "8":
+                say(t("loading"))
+                items = run(load_dialogs(client))
+            elif c == "9":
+                if settings_screen(app, client, api_id) == "logout":
+                    break
+            elif c == "0":
+                break
+    finally:
+        try:
+            run(_disconnect(client))
+        except BaseException:
+            pass
+    say(t("bye"))
+
+
+def _selftest():
+    """Zero-dependency smoke tests for the pure helpers (no pytest, no Telegram):
+    python telescrape_v3.py --selftest"""
+    import io
+    import contextlib
+    import tempfile
+
+    ok = fail = 0
+
+    def eq(got, want, label):
+        nonlocal ok, fail
+        if got == want:
+            ok += 1
+        else:
+            fail += 1
+            print(f"FAIL {label}: got {got!r}, want {want!r}")
+
+    # sanitize: specials, traversal, empty, limit
+    eq(sanitize("a/b\\c:d*e?f<g>h|i"), "a_b_c_d_e_f_g_h_i", "sanitize.specials")
+    eq(sanitize("../../etc/passwd"), "etc_passwd", "sanitize.traversal")
+    eq(sanitize("   "), "chat", "sanitize.blank")
+    eq(sanitize(""), "chat", "sanitize.empty")
+    eq(sanitize("x" * 100, 40), "x" * 40, "sanitize.limit")
+
+    # safe_ext: remote extensions are never trusted inside a path
+    eq(safe_ext(".jpg", "Photo"), ".jpg", "ext.ok")
+    eq(safe_ext(".php", "File"), "", "ext.untrusted")
+    eq(safe_ext("../x", "File"), "", "ext.traversal")
+    eq(safe_ext(None, "Photo"), ".jpg", "ext.default")
+    eq(safe_ext("", "Video"), ".mp4", "ext.video_default")
+
+    # norm_phone: local formats, 00-prefix, Persian digits, spacing junk
+    eq(norm_phone("09121234567"), "+989121234567", "phone.local09")
+    eq(norm_phone("9121234567"), "+989121234567", "phone.local9")
+    eq(norm_phone("+989121234567"), "+989121234567", "phone.plus")
+    eq(norm_phone("00989121234567"), "+989121234567", "phone.00")
+    eq(norm_phone("۰۹۱۲۱۲۳۴۵۶۷"), "+989121234567", "phone.fa_digits")
+    eq(norm_phone("(+44) 20 7946 0958"), "+442079460958", "phone.spaces")
+
+    # Throttle: flood multiplier growth, cap, decay
+    th = Throttle("normal")
+    eq(th.mult, 1.0, "throttle.initial")
+    for _ in range(5):
+        th.flood(10)
+    eq(th.mult, 4.0, "throttle.cap")
+    for _ in range(200):
+        th.ok()
+    eq(th.mult, 1.0, "throttle.decay")
+    eq(0 <= th.batch_pause() <= 32.0, True, "throttle.pause_range")
+
+    # is_disk_full
+    eq(is_disk_full(OSError(errno.ENOSPC, "no space")), True, "disk.enospc")
+    eq(is_disk_full(OSError(errno.EACCES, "denied")), False, "disk.eacces")
+    eq(is_disk_full(ValueError("x")), False, "disk.not_oserror")
+
+    # ui_slice: a cut never leaves a dangling combining mark
+    eq(ui_slice("abc", 5), "abc", "slice.short")
+    eq(ui_slice("abcdef", 3), "abc", "slice.cut")
+    eq(ui_slice("اب" + "ْ" + "cd", 3), "اب", "slice.combining")
+
+    # say(): runaway tokens hard-wrap within WIDTH
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        say("x" * 200)
+    eq(max(len(l) for l in buf.getvalue().splitlines()) <= max(20, int(WIDTH)),
+       True, "say.wrap")
+
+    # folder_for: a renamed title reuses (renames) the existing pid folder
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, "old_title_123"))
+        eq(folder_for(tmp, "new title", 123), os.path.join(tmp, "new_title_123"),
+           "folder.rename")
+        eq(os.path.isdir(os.path.join(tmp, "new_title_123")), True, "folder.moved")
+        eq(folder_for(tmp, "another", 456), os.path.join(tmp, "another_456"),
+           "folder.fresh")
+
+    # json roundtrip
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, "j.json")
+        save_json(p, {"a": 1, "b": "فارسی"})
+        eq(load_json(p), {"a": 1, "b": "فارسی"}, "json.roundtrip")
+        eq(load_json(os.path.join(tmp, "missing.json")), None, "json.missing")
+
+    # فیکس NB-12: بکاپ session — رمزنگاری/درودنگری + سلامت snapshot (بدون شبکه)
+    if HAS_CRYPTO:
+        blob = bk_encrypt(b"hello session", "p@ss")
+        eq(bk_decrypt(blob, "p@ss"), b"hello session", "bk.roundtrip")
+        eq(len(blob) > BK_HDR, True, "bk.len")
+        badp = False
+        try:
+            bk_decrypt(blob, "wrong!")
+        except Exception:
+            badp = True
+        eq(badp, True, "bk.wrongpass")
+        badp = False
+        try:
+            bk_decrypt(b"XXXX2" + blob[5:], "p@ss")
+        except Exception:
+            badp = True
+        eq(badp, True, "bk.badmagic")
+        badp = False
+        try:
+            bk_decrypt(BK_MAGIC + b"x" * 10, "p@ss")
+        except Exception:
+            badp = True
+        eq(badp, True, "bk.shortheader")
+        with tempfile.TemporaryDirectory() as tmp:
+            s = os.path.join(tmp, "tg_1.session")
+            con = sqlite3.connect(s)
+            con.execute("CREATE TABLE v(x)")
+            con.commit()
+            con.close()
+            eq(_session_ok(s), True, "bk.sessok")
+            eq(_session_ok(os.path.join(tmp, "nope.session")), False, "bk.sessmissing")
+            with open(os.path.join(tmp, "zero.session"), "w"):
+                pass
+            eq(_session_ok(os.path.join(tmp, "zero.session")), False, "bk.sesscorrupt")
+            dest = os.path.join(tmp, "backup", "tg_1.session.enc")
+            eq(make_session_backup(s, dest, "pw"), True, "bk.mksnap")
+            eq(os.path.exists(dest), True, "bk.file")
+            eq(not os.path.exists(s + ".bksnap"), True, "bk.notmpplain")
+            r = os.path.join(tmp, "r.session")
+            eq(restore_session_backup(dest, r, password="pw"), True, "bk.restore")
+            eq(_session_ok(r), True, "bk.restored")
+            eq(restore_session_backup(dest + ".nope", os.path.join(tmp, "r2.session")), False,
+               "bk.restore_missing")
+
+    print(f"self-test: {ok} passed, {fail} failed")
+    raise SystemExit(1 if fail else 0)
+
+
+def main():
+    if "--selftest" in sys.argv:
+        _selftest()
+        return
+    try:
+        app_main()
+    except LoginAbort:
+        say(t("login_abort"))
+    except (KeyboardInterrupt, EOFError):
+        print()
+        say(t("bye"))
+    except Exception as e:
+        say(t("fatal", e=short_err(e)))       # no raw tracebacks — project UX rule
+        try:
+            pause()
+        except Exception:
+            pass
+
+
+if __name__ == "__main__":
+    main()
