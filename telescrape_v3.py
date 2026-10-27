@@ -156,6 +156,7 @@ S = {
         "mb_q": "سقف حجم (MB): ",
         "logout_q": "از حساب خارج و session حذف شود؟ (y/N): ",
         "logged_out": "خارج شدید و session حذف شد.",
+        "logout_partial": "⚠️ session محلی حذف شد ولی خروج از سرور ناموفق بود؛ از Settings → Devices در خود تلگرام خارج شوید.",
         "enter": "Enter برای ادامه...",
         "bye": "خداحافظ 👋",
         "none": "ندارد",
@@ -232,6 +233,7 @@ S = {
         "mb_q": "Max size (MB): ",
         "logout_q": "Log out and delete the session? (y/N): ",
         "logged_out": "Logged out, session deleted.",
+        "logout_partial": "⚠️ Local session deleted but server-side logout failed; sign out via Settings → Devices in Telegram itself.",
         "enter": "Press Enter to continue...",
         "bye": "Bye 👋",
         "none": "none",
@@ -1341,12 +1343,13 @@ def settings_screen(app, client, api_id):
             app.speed = order[(order.index(app.speed) + 1) % 3] if app.speed in order else "normal"
         elif c == "6":
             if ask(t("logout_q")).lower() == "y":
+                ok = False      # فیکس NB-11: log_out روی شکست False برمی‌گرداند — نتیجه چک شود
                 try:
-                    run(client.log_out())
+                    ok = bool(run(client.log_out()))
                 except Exception:
-                    pass
+                    ok = False
                 app.delete_session(api_id)
-                say(t("logged_out"))
+                say(t("logged_out") if ok else t("logout_partial"))
                 return "logout"
         elif c == "0":
             app.save_settings()
