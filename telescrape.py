@@ -4433,8 +4433,11 @@ def _selftest():
         eq(rv.status_code, 200, "gate.key200")
         eq(any(v.startswith("ts_key=") for v in rv.headers.get_all("Set-Cookie")), True, "gate.cookie")
         eq(tc.get("/", headers={"Cookie": "ts_key=zz-selftest-zz"}).status_code, 200, "gate.cookie200")
-        eq(tc.get("/?key=wrong").status_code, 401, "gate.wrong")
-        eq(tc.get("/api/state").status_code, 401, "gate.api401")
+        # فیکس NB-22: test_client کوکیِ معتبر را در jar خود نگه می‌دارد؛ این دو تست
+        # باید با کلاینت تازه (بدون کوکی) سنجیده شوند — گیت با کوکیِ معتبر به‌درستی 200 می‌دهد.
+        tc2 = web.test_client()
+        eq(tc2.get("/?key=wrong").status_code, 401, "gate.wrong")
+        eq(tc2.get("/api/state").status_code, 401, "gate.api401")
     finally:
         STATE["access_key"] = _ak
 
