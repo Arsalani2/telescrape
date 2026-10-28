@@ -3990,6 +3990,10 @@ function showProgress() {
   const stale = $("#pollRetryBtn");             // فیکس WB-12: دکمه‌ی تلاش دوباره‌ی مانده
   if (stale) stale.remove();
   pollErrs = 0;
+  // فیکس NB-25: آمار اسکرپ قبلی (ساعت/ETA/شمارنده‌ها) به اسکرپ تازه نشت نکند
+  srvNow = 0; jobStart = 0; lastDone = 0; lastTotal = 0;
+  $("#etaTxt").textContent = "";
+  $("#stTime").textContent = fmtDur(0);
   if (tickTimer) clearInterval(tickTimer);
   tickTimer = setInterval(() => { if (srvNow) { srvNow += 1; tickUpd(); } }, 1000);
   pollTimer = setInterval(poll, 1500);
