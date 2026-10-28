@@ -40,7 +40,7 @@
 ```python
 import sys; sys.modules.pop("telescrape", None)
 import telescrape
-telescrape.colab_launch()        # پورت دیگر: colab_launch(port=8001)
+telescrape.colab_launch()        # پورت دیگر: colab_launch(port=8001) — اتصال Drive: colab_launch(drive=True)
 ```
 خروجی نمونه (وضعیت هر سکرت جدا گزارش می‌شود؛ مقدارها هرگز چاپ نمی‌شوند):
 ```
@@ -113,7 +113,7 @@ while True:
 from google.colab import drive
 drive.mount('/content/drive')
 ```
-قبل از لانچر اجرا کنید تا خروجی روی Drive بماند.
+قبل از لانچر اجرا کنید تا خروجی روی Drive بماند — یا ساده‌تر: لانچر را با colab_launch(drive=True) اجرا کنید تا خودش وصل کند (پس از آن، کارت «حساب» و تنظیمات وضعیت Drive را نشان می‌دهند).
 
 ## ری‌استارت سرور
 سلول لانچر (۲ یا ۲ب) خودش ابتدای کار پروسه‌ی قدیمی را می‌کشد؛ فقط دوباره اجرایش کنید

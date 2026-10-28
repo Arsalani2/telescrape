@@ -2112,6 +2112,12 @@ W = {
         "ln_no_app_token": "⛔ سکرت APP_TOKEN پیدا نشد — برای لینک عمومی الزامی است. در 🔑 Secrets مقداری الفبایی-عدمی بسازید، «Notebook access» را روشن کنید و لانچر را دوباره اجرا کنید.",
         "ln_tunnel_url": "🌍 لینک عمومی (روی هر دستگاهی و بدون لاگین گوگل باز می‌شود):",
         "ln_tunnel_fail": "⛔ تونل cloudflared تا {s} ثانیه لینک نداد؛ لانچر را دوباره اجرا کنید. اگر تکرار شد، روش‌های جایگزین (localtunnel/ngrok) در COLAB.md.",
+        # UIUX-2: Drive از لانچر + انتقال زیپ به پوشهٔ دلخواه
+        "ln_drive_mounting": "🔌 در حال اتصال Google Drive…",
+        "ln_drive_ok": "✅ Drive وصل شد — خروجی‌ها و بکاپ سشن روی Drive می‌مانند",
+        "ln_drive_fail": "⚠️ اتصال Drive ناموفق: {e} — خروجی روی دیسک موقت می‌ماند",
+        "mv_bad_dest": "مسیر مقصد نامعتبر است — مسیر مطلق بدهید (در Colab فقط داخل /content، مثل /content/drive/MyDrive/…).",
+        "mv_fail": "انتقال زیپ ناموفق بود: {e}",
     },
     "en": {
         "bad_api_id": "Invalid API ID.",
@@ -2160,6 +2166,12 @@ W = {
         "ln_no_app_token": "⛔ Secret APP_TOKEN not found — required for a public link. Create an alphanumeric value in 🔑 Secrets, enable \"Notebook access\", and run the launcher again.",
         "ln_tunnel_url": "🌍 Public link (opens on any device, no Google sign-in):",
         "ln_tunnel_fail": "⛔ cloudflared gave no URL within {s}s; run the launcher again. If it repeats, use the alternatives (localtunnel/ngrok) in COLAB.md.",
+        # UIUX-2: Drive via launcher + zip move to a custom folder
+        "ln_drive_mounting": "🔌 Connecting Google Drive…",
+        "ln_drive_ok": "✅ Drive connected — outputs and session backup stay on Drive",
+        "ln_drive_fail": "⚠️ Drive connection failed: {e} — outputs stay on the temporary disk",
+        "mv_bad_dest": "Invalid destination — give an absolute path (in Colab only inside /content, e.g. /content/drive/MyDrive/…).",
+        "mv_fail": "Zip move failed: {e}",
     },
 }
 
@@ -2257,6 +2269,24 @@ def _zip_path(zdir, name):
 # فیکس WB-11: اسکلت مرده‌ی PAGE (نسخه‌ی اول WEB-01) حذف شد — فقط PAGE کامل پایین فایل معتبر است
 
 
+def _safe_dest(raw, colab=None):
+    """UIUX-2: مسیر مقصدِ انتقال زیپ — مطلق و امن؛ در Colab فقط زیر /content؛ هرگز داخل session."""
+    if colab is None:
+        colab = ts.IN_COLAB
+    s = os.path.expanduser(str(raw or "").strip())
+    if not s.startswith("/") or "\x00" in s:
+        return None
+    p = os.path.abspath(s)
+    if colab and not (p == "/content" or p.startswith("/content/")):
+        return None
+    app = STATE.get("app")
+    if app is not None:
+        sd = os.path.abspath(app.session_dir)
+        if p == sd or p.startswith(sd + os.sep):
+            return None
+    return p
+
+
 def _bad_token():
     if _check_token():
         return None
@@ -2289,6 +2319,9 @@ def api_state():
             "who": STATE["who"],
             "restored": STATE["restored"],
             "bk_active": _bk_active(),  # فیکس WB-13: وضعیت بکاپ سشن برای کارت «حساب»
+            "phone": STATE["phone"] or "",   # UIUX-2: شمارهٔ حساب برای کارت «حساب»
+            "drive": bool(ts.USE_DRIVE and os.path.isdir("/content/drive/MyDrive")),  # UIUX-2
+            "base": (STATE["app"].base if STATE["app"] else ""),   # UIUX-2: مسیر خروجی فعلی
             "secrets": dict(STATE["secrets"]),
             "has_job": bool(STATE["job"] and not STATE["job"]["done"]),
         })
@@ -2408,7 +2441,7 @@ def _start_cloudflared(port, wait=_TUNNEL_WAIT):
     return None
 
 
-def colab_launch(port=8000, boot_wait=30, getter=None, show_url=True, tunnel=False):
+def colab_launch(port=8000, boot_wait=30, getter=None, show_url=True, tunnel=False, drive=False):
     """لانچر Colab — داخل یک سلولِ نوت‌بوک اجرا کنید (COLAB.md، سلول ۲):
         import sys; sys.modules.pop("telescrape", None)
         import telescrape; telescrape.colab_launch()
@@ -2416,8 +2449,20 @@ def colab_launch(port=8000, boot_wait=30, getter=None, show_url=True, tunnel=Fal
     با سکرت‌ها در env (فقط RAM) اجرا می‌کند و از خودِ سرور تایید می‌گیرد که آنها را دیده.
     True یعنی همه‌ی سکرت‌های خوانده‌شده به سرور رسیده‌اند و سرور بالاست.
     tunnel=True (موج TUN): به‌جای لینک proxyPort، لینک عمومی cloudflared می‌سازد —
-    نیازمند سکرت APP_TOKEN؛ بدون آن متوقف می‌شود. درخواست بدون key صحیح → 401."""
+    نیازمند سکرت APP_TOKEN؛ بدون آن متوقف می‌شود. درخواست بدون key صحیح → 401.
+    drive=True (موج UIUX-2): پیش از اجرای سرور، Google Drive را در همین کرنل ماونت
+    می‌کند — خروجی‌ها و بکاپ سشن روی Drive می‌مانند و UI وضعیت را نشان می‌دهد."""
     import urllib.request, urllib.parse
+    # UIUX-2: mount تعاملی Drive فقط در کرنل ممکن است؛ سرورِ فرزند پوشهٔ ازپیش‌ماونت
+    # را تشخیص می‌دهد (USE_DRIVE در main). drive=True → اتصال همین‌جا، پیش از سرور.
+    if drive:
+        try:
+            from google.colab import drive as _gd
+            print(wt("ln_drive_mounting"))
+            _gd.mount("/content/drive")
+            print(wt("ln_drive_ok"))
+        except Exception as e:
+            print(wt("ln_drive_fail", e=ts.short_err(e)))
     if getter is None:
         try:
             from google.colab import userdata
@@ -3056,6 +3101,34 @@ def api_zips():
     return jsonify({"zips": out})
 
 
+@web.route("/api/zip/move", methods=["POST"])
+def api_zip_move():
+    """UIUX-2: انتقال زیپ به پوشهٔ دلخواه (Colab/Drive) — نام با _zip_path، مقصد با _safe_dest."""
+    bad = _bad_token()
+    if bad:
+        return bad
+    r = _require_ready()
+    if r:
+        return r
+    data = request.get_json(silent=True) or {}
+    path = _zip_path(STATE["app"].zips, data.get("name"))
+    if path is None or not os.path.isfile(path):
+        return jsonify({"error": wt("zip_not_found")}), 404
+    dest = _safe_dest(data.get("dest"))
+    if dest is None:
+        return jsonify({"error": wt("mv_bad_dest")}), 400
+    try:
+        os.makedirs(dest, exist_ok=True)
+        final = os.path.join(dest, os.path.basename(path))
+        if os.path.exists(final):
+            os.remove(final)          # بازنویسی مقصدِ هم‌نام — الگوی پروژه
+        shutil.move(path, final)
+        st = os.stat(final)
+    except Exception as e:
+        return jsonify({"error": wt("mv_fail", e=ts.short_err(e))}), 500
+    return jsonify({"ok": True, "path": final, "size": st.st_size})
+
+
 @web.route("/api/settings")
 def api_settings_get():
     """همان ۵ گزینه‌ی settings_screen + speed (قابلیت WEB-04)."""
@@ -3275,6 +3348,9 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
 <body>
 <header class="topbar">
   <h1><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9M4 15a5 5 0 0 1 5 5M5 19h.01"/><circle cx="5.5" cy="8.5" r="2.5"/><path d="M12 12l8-8"/><path d="M17 4h3v3"/></svg>اسکرپر تلگرام</h1>
+  <button id="topSetBtn" class="btn ghost" aria-label="تنظیمات">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
   <button id="themeBtn" class="btn ghost" aria-label="تغییر روشن/تاریک">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
   </button>
@@ -3343,9 +3419,15 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
 </section>
 
 <section data-view="main" hidden>
-  <div class="row">
-    <p class="muted" id="who"></p>
-    <button class="btn ghost" id="refreshBtn">بازخوانی</button>
+  <!-- UIUX-2: کارت «حساب» — نام/شماره/وضعیت سشن/وضعیت Drive -->
+  <div class="card" id="accountCard" hidden>
+    <div class="row">
+      <h2 id="mAccName">👤 …</h2>
+      <button class="btn ghost" id="refreshBtn">بازخوانی</button>
+    </div>
+    <p class="muted" id="mAccPhone" dir="ltr"></p>
+    <p class="muted" id="mAccSess"></p>
+    <p class="muted" id="mAccDrive" dir="ltr"></p>
   </div>
   <div class="tabs" role="tablist" aria-label="دسته‌ی چت‌ها">
     <button class="tab" role="tab" data-cat="all" aria-selected="true">همه</button>
@@ -3460,6 +3542,13 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
       <p class="muted" id="speedHint" aria-live="polite"></p>
     </div>
   </form>
+  <!-- UIUX-2: وضعیت Drive و مسیر خروجی -->
+  <div class="card">
+    <h2>Google Drive و خروجی</h2>
+    <p id="stDrive"></p>
+    <p class="muted" id="stBase" dir="ltr"></p>
+    <p class="muted" id="stDriveHint"></p>
+  </div>
   <!-- فیکس WB-10: بعد از ریستارت سرور، زیپ‌های قبلی از این کارت قابل دانلود‌اند -->
   <div class="card" id="accZipsCard" hidden>
     <h2>زیپ‌های قبلی</h2>
@@ -3469,6 +3558,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
   <div class="card">
     <h2>حساب</h2>
     <p id="accWho"></p>
+    <p class="muted" id="accPhone" dir="ltr"></p>
     <p class="muted" id="accBackup"></p>
     <button class="btn danger full" id="logoutBtn">خروج کامل از حساب</button>
   </div>
@@ -3637,8 +3727,20 @@ function showLogin(phase) {
 
 function showMain() {
   api("/api/state").then(r => {
-    $("#who").textContent = (r.data && r.data.who) ? "حساب: " + r.data.who : "";
-    if (r.data && r.data.has_job) { showProgress(); return; }
+    const t = r.data || {};
+    if (t.has_job) { showProgress(); return; }
+    const card = $("#accountCard");       // UIUX-2: کارت «حساب»
+    if (t.who || t.phone) {
+      card.hidden = false;
+      $("#mAccName").textContent = "👤 " + (t.who || "—");
+      $("#mAccPhone").textContent = t.phone ? "📞 " + t.phone : "";
+      $("#mAccSess").textContent = t.restored
+        ? "🔐 سشن از بکاپ Drive بازیابی شده"
+        : (t.bk_active ? "🔐 بکاپ سشن روی Drive فعال" : "🔐 بدون بکاپ سشن");
+      $("#mAccDrive").textContent = t.drive
+        ? "📁 Drive وصل است: " + (t.base || "")
+        : "📁 Drive وصل نیست — خروجی موقت است؛ لانچر را با drive=True اجرا کنید";
+    } else { card.hidden = true; }
   });
   show("main");
   loadList(1);
@@ -3912,13 +4014,38 @@ function loadZips(box, card) {
   api("/api/zips").then(r => {
     const zs = (r.data && r.data.zips) || [];
     if (r.status !== 200 || !zs.length) { if (card) card.hidden = true; return; }
-    box.innerHTML = zs.map(z =>
-      "<a class='btn ghost full' href='/api/zip?name=" + encodeURIComponent(z.name) +
-      "&t=" + encodeURIComponent(TOKEN) + "' download='" + escapeHtml(z.name) + "'>" +
-      escapeHtml(z.name) + " <span class='badge num' dir='ltr'>" + fmtSize(z.size) + "</span></a>"
-    ).join("");
+    // UIUX-2: ورودی مقصد مشترک + دکمهٔ 📤 انتقال برای هر زیپ
+    const lastDest = localStorage.getItem("ts_mv_dest") || "/content/drive/MyDrive/TeleScrape/zips";
+    box.innerHTML =
+      "<p class='muted'>پوشهٔ مقصدِ انتقال (مثلاً /content/drive/MyDrive/…):</p>" +
+      "<input class='mvDest' dir='ltr' autocomplete='off' value='" + escapeHtml(lastDest) + "'>" +
+      zs.map(z => {
+        const dl = "/api/zip?name=" + encodeURIComponent(z.name) + "&t=" + encodeURIComponent(TOKEN);
+        return "<div class='row'><a class='btn ghost' style='flex:1' href='" + dl +
+               "' download='" + escapeHtml(z.name) + "'>" + escapeHtml(z.name) +
+               " <span class='badge num' dir='ltr'>" + fmtSize(z.size) + "</span></a>" +
+               "<button class='btn ghost' data-mv='" + escapeHtml(z.name) + "' aria-label='انتقال این زیپ'>📤</button></div>";
+      }).join("");
+    box.querySelectorAll("[data-mv]").forEach(b =>
+      b.addEventListener("click", () => moveZip(b.dataset.mv, box.querySelector(".mvDest").value)));
     if (card) card.hidden = false;
   }).catch(() => { if (card) card.hidden = true; });
+}
+
+// UIUX-2: انتقال زیپ به پوشهٔ دلخواه Colab/Drive — همه‌چیز از UI
+function moveZip(name, dest) {
+  dest = (dest || "").trim();
+  if (!dest) { toast("پوشهٔ مقصد را وارد کنید", "err"); return; }
+  api("/api/zip/move", { name: name, dest: dest }).then(r => {
+    if (r.status === 200) {
+      localStorage.setItem("ts_mv_dest", dest);
+      toast("✅ انتقال شد: " + (r.data.path || name), "ok");
+      if (!$("#prevZipsCard").hidden) loadZips($("#prevZips"), $("#prevZipsCard"));
+      if (!$("#accZipsCard").hidden) loadZips($("#accZips"), $("#accZipsCard"));
+    } else {
+      toast((r.data && r.data.error) || "انتقال ناموفق بود", "err");
+    }
+  });
 }
 
 $("#setupForm").addEventListener("submit", e => {
@@ -4077,7 +4204,13 @@ function showSettings() {
     buildSpeedSeg(d.speeds, d.speed || "normal");
     speedHintUpdate();
     const t = rt.data || {};
-    $("#accWho").textContent = t.who ? "حساب: " + t.who : "";
+    $("#accWho").textContent = t.who ? "👤 " + t.who : "";
+    $("#accPhone").textContent = t.phone ? "📞 " + t.phone : "";
+    $("#stDrive").textContent = t.drive ? "✅ Drive وصل است" : "❌ Drive وصل نیست";
+    $("#stBase").textContent = t.base || "";
+    $("#stDriveHint").textContent = t.drive
+      ? "خروجی‌ها و بکاپ سشن روی Drive ذخیره می‌شوند."
+      : "برای وصل کردن، سلول لانچر را با colab_launch(drive=True) اجرا کنید. زیپ‌های موجود را با دکمهٔ 📤 کارت «زیپ‌های قبلی» دستی به Drive منتقل کنید.";
     $("#accBackup").textContent = t.bk_active
       ? (t.restored ? "بکاپ سشن روی Drive: فعال — این سشن از بکاپ بازیابی شده بود"
                     : "بکاپ سشن روی Drive: فعال")
@@ -4087,7 +4220,8 @@ function showSettings() {
   }).catch(() => toast("ارتباط با سرور برقرار نشد", "err"));
 }
 $("#settingsBtn").addEventListener("click", showSettings);
-$("#setBack").addEventListener("click", () => showMain());
+$("#topSetBtn").addEventListener("click", showSettings);   // UIUX-2: ⚙️ بالای صفحه
+$("#setBack").addEventListener("click", () => boot());   // UIUX-2: ⚙️ از هر فازی باز می‌شود → بازگشت به فاز درست
 $("#s_limit").addEventListener("change", mbToggle);
 $("#s_max").addEventListener("input", mbHintUpdate);
 
@@ -4445,6 +4579,43 @@ def _selftest():
     _m = web.url_map.bind("localhost")
     eq(_m.match("/api/chat/-1004290167321", method="GET")[0], "api_chat", "route.negative")
     eq(_m.match("/api/chat/4290167321", method="GET")[0], "api_chat", "route.positive")
+
+    # UIUX-2: _safe_dest — مسیر مقصدِ انتقال زیپ (خالص)
+    eq(_safe_dest("", colab=False), None, "dest.empty")
+    eq(_safe_dest("rel/x", colab=False), None, "dest.relative")
+    eq(_safe_dest("/content/out", colab=True), "/content/out", "dest.colab_ok")
+    eq(_safe_dest("/etc/out", colab=True), None, "dest.colab_denied")
+
+    # UIUX-2: POST /api/zip/move — انتقال واقعی + گاردها (ترتیب: bad → notfound → ok)
+    _saved = dict(STATE)
+    _oldcwd2 = os.getcwd()
+    try:
+        os.chdir(tempfile.mkdtemp())
+        STATE["app"] = ts.App()
+        STATE["phase"] = "ready"
+        STATE["client"] = object()
+        eq(_safe_dest(STATE["app"].session_dir, colab=False), None, "dest.session")
+        _mvdst = "/content/ts_mv_test" if ts.IN_COLAB else tempfile.mkdtemp()
+        _zfx = os.path.join(STATE["app"].zips, "t_move.zip")
+        with open(_zfx, "w") as f:
+            f.write("x" * 100)
+        _tc = web.test_client()
+        _r1 = _tc.post("/api/zip/move", headers={"X-TS-Token": STATE["token"]},
+                       json={"name": "t_move.zip", "dest": "rel"})
+        eq(_r1.status_code, 400, "move.bad_dest")
+        _r2 = _tc.post("/api/zip/move", headers={"X-TS-Token": STATE["token"]},
+                       json={"name": "nope.zip", "dest": _mvdst})
+        eq(_r2.status_code, 404, "move.notfound")
+        _r3 = _tc.post("/api/zip/move", headers={"X-TS-Token": STATE["token"]},
+                       json={"name": "t_move.zip", "dest": _mvdst})
+        eq(_r3.status_code, 200, "move.ok")
+        eq(_r3.get_json().get("ok"), True, "move.ok_json")
+        eq(os.path.isfile(os.path.join(_mvdst, "t_move.zip")), True, "move.file")
+        shutil.rmtree(_mvdst, ignore_errors=True)     # پاک‌سازی مقصدِ تست
+    finally:
+        os.chdir(_oldcwd2)
+        STATE.clear()
+        STATE.update(_saved)
 
     # ماشین حالت لاگین با کلاینت فیک — بدون شبکه (قابلیت WEB-03/WEB-07)
     class _FakeMe:
