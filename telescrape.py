@@ -1540,16 +1540,8 @@ def offer_download(zip_path):
 def start_chat(app, client, item):
     """Chat header -> Enter -> full export. The only choice is start or cancel."""
     clear()
-    try:
-        total = run(count_msgs(client, item["entity"]))
-    except KeyboardInterrupt:
-        return                      # back to the main menu, don't kill the whole app
-    print(hr())
-    say(t("chat_head", name=short(item["name"], 60), id=item["id"], total="?" if total is None else total))
-    print(hr())
-    if ask(t("start_q")) == "0":
-        return
-    say(t("starting"))
+    # فیکس NB-23: شمارش پیام‌ها و تأیید شروع فقط یک‌بار — این بلوک قبلاً دوبار
+    # تکرار شده بود (دو درخواست شمارش به تلگرام + دو بار پرسش شروع از کاربر).
     try:
         total = run(count_msgs(client, item["entity"]))
     except KeyboardInterrupt:
