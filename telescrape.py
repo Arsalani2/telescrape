@@ -3243,15 +3243,29 @@ body{
   background:var(--bg); color:var(--text); font-size:16px; line-height:1.6;
   min-height:100vh; padding-bottom:calc(env(safe-area-inset-bottom) + 24px);
 }
-.topbar{display:flex;align-items:center;justify-content:space-between;
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:8px;
   padding:12px 16px;position:sticky;top:0;background:var(--surface);
   border-bottom:1px solid var(--line);z-index:10}
-.topbar h1{font-size:18px;margin:0;display:flex;align-items:center;gap:8px}
+.topbar h1{font-size:18px;margin:0;display:flex;align-items:center;gap:8px;
+  min-width:0;overflow:hidden}
+.topbar h1 svg{flex:none}
 .wrap{max-width:560px;margin:0 auto;padding:0 16px}
+/* UIUX-3: مسیرهای طولانی داخل کارت بشکنند، نه بیرونِ آن */
+#resFolder,#curFile,#stBase{overflow-wrap:anywhere;word-break:normal;max-width:100%}
 h2{font-size:17px;margin:0 0 8px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
   padding:16px;box-shadow:var(--shadow);margin:16px 0}
 .muted{color:var(--muted);font-size:14px;margin:4px 0}
+/* UIUX-3: فاصلهٔ خطوط کارت «حساب» */
+#accountCard .muted{margin:6px 0;line-height:1.8}
+/* UIUX-3: ردیف زیپ — بدون style درون‌خطی؛ لینک کشسان، دکمهٔ 📤 ثابت */
+.zipRow{display:flex;gap:8px;align-items:center;margin:8px 0}
+.zipRow>a{flex:1;min-width:0;display:inline-flex;flex-wrap:wrap;align-items:center;
+  column-gap:8px;row-gap:2px;text-align:start;line-height:1.5;white-space:normal}
+.zipRow .zname{overflow-wrap:anywhere;word-break:normal}
+.zipRow .badge{flex:none}
+.zipRow>[data-mv]{flex:none;width:48px;min-width:48px;padding-inline:0}
+.mvDest{margin:6px 0 2px}
 .num{font-variant-numeric:tabular-nums}
 .row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
 .btn{min-height:44px;min-width:44px;border:0;border-radius:12px;font:inherit;font-weight:600;
@@ -3302,10 +3316,11 @@ input:focus,select:focus,button:focus-visible,[tabindex]:focus-visible{
   font-variant-numeric:tabular-nums}
 .log div{white-space:pre-wrap;word-break:break-word;color:var(--muted)}
 .log div.imp{color:var(--text);font-weight:600}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
-.stat{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+.stat{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+  min-width:0;display:flex;flex-direction:column;gap:2px}
 .stat .muted{margin:0;font-size:12px}
-.stat b{font-size:16px}
+.stat b{font-size:16px;overflow-wrap:anywhere}
 #toasts{position:fixed;inset-inline:12px;bottom:calc(12px + env(safe-area-inset-bottom));
   display:flex;flex-direction:column;gap:8px;z-index:60}
 #countdown{position:fixed;inset-inline:12px;top:64px;z-index:55;margin:0;box-shadow:var(--shadow)}
@@ -3425,9 +3440,9 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
       <h2 id="mAccName">👤 …</h2>
       <button class="btn ghost" id="refreshBtn">بازخوانی</button>
     </div>
-    <p class="muted" id="mAccPhone" dir="ltr"></p>
+    <p class="muted" id="mAccPhone"></p>
     <p class="muted" id="mAccSess"></p>
-    <p class="muted" id="mAccDrive" dir="ltr"></p>
+    <p class="muted" id="mAccDrive"></p>
   </div>
   <div class="tabs" role="tablist" aria-label="دسته‌ی چت‌ها">
     <button class="tab" role="tab" data-cat="all" aria-selected="true">همه</button>
@@ -3558,7 +3573,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
   <div class="card">
     <h2>حساب</h2>
     <p id="accWho"></p>
-    <p class="muted" id="accPhone" dir="ltr"></p>
+    <p class="muted" id="accPhone"></p>
     <p class="muted" id="accBackup"></p>
     <button class="btn danger full" id="logoutBtn">خروج کامل از حساب</button>
   </div>
@@ -3733,13 +3748,13 @@ function showMain() {
     if (t.who || t.phone) {
       card.hidden = false;
       $("#mAccName").textContent = "👤 " + (t.who || "—");
-      $("#mAccPhone").textContent = t.phone ? "📞 " + t.phone : "";
+      $("#mAccPhone").textContent = t.phone ? "📞 \u2066" + t.phone + "\u2069" : "";
       $("#mAccSess").textContent = t.restored
         ? "🔐 سشن از بکاپ Drive بازیابی شده"
         : (t.bk_active ? "🔐 بکاپ سشن روی Drive فعال" : "🔐 بدون بکاپ سشن");
       $("#mAccDrive").textContent = t.drive
-        ? "📁 Drive وصل است: " + (t.base || "")
-        : "📁 Drive وصل نیست — خروجی موقت است؛ لانچر را با drive=True اجرا کنید";
+        ? "📁 Drive وصل است: \u2066" + (t.base || "") + "\u2069"
+        : "📁 Drive وصل نیست — خروجی موقت است؛ لانچر را با \u2066drive=True\u2069 اجرا کنید";
     } else { card.hidden = true; }
   });
   show("main");
@@ -4017,14 +4032,14 @@ function loadZips(box, card) {
     // UIUX-2: ورودی مقصد مشترک + دکمهٔ 📤 انتقال برای هر زیپ
     const lastDest = localStorage.getItem("ts_mv_dest") || "/content/drive/MyDrive/TeleScrape/zips";
     box.innerHTML =
-      "<p class='muted'>پوشهٔ مقصدِ انتقال (مثلاً /content/drive/MyDrive/…):</p>" +
-      "<input class='mvDest' dir='ltr' autocomplete='off' value='" + escapeHtml(lastDest) + "'>" +
+      "<p class='muted'>پوشهٔ مقصدِ انتقال (مثلاً <bdi dir='ltr'>/content/drive/MyDrive/…</bdi>):</p>" +
+      "<input class='mvDest' dir='ltr' autocomplete='off' aria-label='پوشهٔ مقصد انتقال' value='" + escapeHtml(lastDest) + "'>" +
       zs.map(z => {
         const dl = "/api/zip?name=" + encodeURIComponent(z.name) + "&t=" + encodeURIComponent(TOKEN);
-        return "<div class='row'><a class='btn ghost' style='flex:1' href='" + dl +
-               "' download='" + escapeHtml(z.name) + "'>" + escapeHtml(z.name) +
-               " <span class='badge num' dir='ltr'>" + fmtSize(z.size) + "</span></a>" +
-               "<button class='btn ghost' data-mv='" + escapeHtml(z.name) + "' aria-label='انتقال این زیپ'>📤</button></div>";
+        return "<div class='zipRow'><a class='btn ghost' href='" + dl +
+               "' download='" + escapeHtml(z.name) + "'><span class='zname' dir='ltr'>" + escapeHtml(z.name) +
+               "</span><span class='badge num' dir='ltr'>" + fmtSize(z.size) + "</span></a>" +
+               "<button class='btn ghost' data-mv='" + escapeHtml(z.name) + "' aria-label='انتقال " + escapeHtml(z.name) + " به پوشهٔ مقصد'>📤</button></div>";
       }).join("");
     box.querySelectorAll("[data-mv]").forEach(b =>
       b.addEventListener("click", () => moveZip(b.dataset.mv, box.querySelector(".mvDest").value)));
@@ -4039,7 +4054,7 @@ function moveZip(name, dest) {
   api("/api/zip/move", { name: name, dest: dest }).then(r => {
     if (r.status === 200) {
       localStorage.setItem("ts_mv_dest", dest);
-      toast("✅ انتقال شد: " + (r.data.path || name), "ok");
+      toast("✅ انتقال شد: \u2066" + (r.data.path || name) + "\u2069", "ok");
       if (!$("#prevZipsCard").hidden) loadZips($("#prevZips"), $("#prevZipsCard"));
       if (!$("#accZipsCard").hidden) loadZips($("#accZips"), $("#accZipsCard"));
     } else {
@@ -4205,12 +4220,12 @@ function showSettings() {
     speedHintUpdate();
     const t = rt.data || {};
     $("#accWho").textContent = t.who ? "👤 " + t.who : "";
-    $("#accPhone").textContent = t.phone ? "📞 " + t.phone : "";
+    $("#accPhone").textContent = t.phone ? "📞 \u2066" + t.phone + "\u2069" : "";
     $("#stDrive").textContent = t.drive ? "✅ Drive وصل است" : "❌ Drive وصل نیست";
     $("#stBase").textContent = t.base || "";
     $("#stDriveHint").textContent = t.drive
       ? "خروجی‌ها و بکاپ سشن روی Drive ذخیره می‌شوند."
-      : "برای وصل کردن، سلول لانچر را با colab_launch(drive=True) اجرا کنید. زیپ‌های موجود را با دکمهٔ 📤 کارت «زیپ‌های قبلی» دستی به Drive منتقل کنید.";
+      : "برای وصل کردن، سلول لانچر را با \u2066colab_launch(drive=True)\u2069 اجرا کنید. زیپ‌های موجود را با دکمهٔ 📤 کارت «زیپ‌های قبلی» دستی به Drive منتقل کنید.";
     $("#accBackup").textContent = t.bk_active
       ? (t.restored ? "بکاپ سشن روی Drive: فعال — این سشن از بکاپ بازیابی شده بود"
                     : "بکاپ سشن روی Drive: فعال")
