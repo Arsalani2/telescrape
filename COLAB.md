@@ -2,6 +2,10 @@
 
 # 🚀 اجرای TeleScrape در Colab
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Personalmo/telescrape/blob/main/telescrape.ipynb)
+
+> 💡 **راه بدون کپی:** نوت‌بوک آمادهٔ [telescrape.ipynb](https://github.com/Personalmo/telescrape/blob/main/telescrape.ipynb) همین سلول‌ها را دارد — روی بج بالا بزنید تا در Colab باز شود؛ بعد فقط دکمهٔ اجرا (▶) هر سلول را به ترتیب بزنید.
+
 فقط یک فایل: **telescrape.py** (موتور + رابط وب). سلول‌ها را به ترتیب اجرا کنید.
 
 ## ۰) سکرت‌ها (فقط بار اول)
