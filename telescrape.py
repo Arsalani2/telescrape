@@ -466,6 +466,8 @@ def run(coro, stoppable=False):
 
 async def nap(sec, show=True):
     """Interruptible sleep. Long pauses show a countdown."""
+    if sec >= 30:
+        notify(f"😴 استراحت {int(sec)} ثانیه‌ای — خنک‌سازی برای جلوگیری از محدودیت تلگرام")  # UIUX-02
     end = time.time() + max(0.0, sec)
     while True:
         left = end - time.time()
@@ -1206,6 +1208,7 @@ async def download(client, m, path, size, th, tag=""):
                     raise Stopped()
                 if time.time() - st["t"] > STALL_SECS:
                     raise asyncio.TimeoutError("stalled")
+                PROG["dl_got"] = st["cur"]        # UIUX-02: پیشرفت فایل جاری برای وب
                 status(f"{tag} ⬇ {st['cur'] // MB}/{size // MB}MB")
             r = task.result()
             if r and os.path.exists(r):        # a 0-byte file is valid if the transfer finished
@@ -1281,12 +1284,15 @@ async def scrape(app, client, item, speed, total_hint=None):
     last_done = resume_id if resume_id else None
     # قابلیت WEB-02: پیشرفت ساختاریافته برای لایه‌ی وب — رفتار ترمینال تغییر نمی‌کند
     PROG.update(phase="scrape", chat=name, chat_id=pid, total=None, pct=0,
-                done=done_before, files=0, skipped=0, errors=0, zip=None)
+                done=done_before, files=0, skipped=0, errors=0, zip=None,
+                milestone=0, dl_name=None, dl_got=None)   # UIUX-02: فاز/فایل جاری برای وب
 
     total = total_hint                     # reuse the count shown in the chat header (P3-6)
     if total is None:
+        PROG["phase"] = "count"            # UIUX-02: وب زنده نشان دهد که مشغول شمارش پیام‌هاست
         try:
             total = (await tg_call(lambda: client.get_messages(entity, limit=0), th, 60)).total or 0
+            PROG["phase"] = "scrape"       # UIUX-02
         except Stopped:
             res.update(interrupted=True, reason="stop")
             PROG["phase"] = "stopped"          # قابلیت WEB-02
@@ -1366,7 +1372,9 @@ async def scrape(app, client, item, speed, total_hint=None):
                     _write_sidecar(path, author, dt, kind, text)
             else:
                 tag = f"{int((done_before + stats['msgs']) * 100 / total):3d}% #{mid}"
+                PROG.update(dl_name=fname, dl_size=size, dl_got=0)   # UIUX-02: فایل جاری در صفحه‌ی پیشرفت
                 ok = await download(client, m, path, size, th, tag)
+                PROG.update(dl_name=None, dl_got=None)
                 if ok:
                     stats["files"] += 1
                     mf.write(f"File: {fname}\n")
@@ -1422,6 +1430,9 @@ async def scrape(app, client, item, speed, total_hint=None):
                     PROG.update(pct=pct, done=done_n, files=stats["files"],   # قابلیت WEB-02
                                 skipped=stats["skipped"], errors=stats["errors"])
                     status(f"{pct:3d}% {done_n}/{total} f{stats['files']} e{stats['errors']}")
+                    if pct // 25 > PROG.get("milestone", 0) // 25:   # UIUX-02: خبر هر ۲۵٪ برای گزارش زنده‌ی وب
+                        PROG["milestone"] = pct
+                        notify(f"✅ {pct}% از پیام‌ها دریافت شد")
                     if stats["msgs"] % 50 == 0:
                         mf.flush()
                         md.flush()
@@ -2722,7 +2733,11 @@ def _res_payload(res):
     if res is None:
         return None
     z = res.get("zip")
-    return {"folder": res.get("folder"), "zip": z,
+    try:
+        zsize = os.path.getsize(z) if z else None       # UIUX-03: حجم زیپ در صفحه‌ی نتیجه
+    except OSError:
+        zsize = None
+    return {"folder": res.get("folder"), "zip": z, "zip_size": zsize,
             "zip_name": os.path.basename(z) if z else None,
             "empty": bool(res.get("empty")), "interrupted": bool(res.get("interrupted")),
             "reason": res.get("reason") or "", "msgs": res.get("msgs", 0),
@@ -2736,6 +2751,7 @@ def _job_payload():
         if j is None:
             return None
         return {"chat": j["chat"], "chat_id": j["chat_id"], "started_at": j["started_at"],
+                "finished_at": j.get("finished_at"),                       # UIUX-03
                 "done": j["done"], "error": j["error"],
                 "result": _res_payload(j["result"]) if j["done"] else None}
 
@@ -2755,6 +2771,7 @@ def _job_done(fut):
         if res is not None:
             STATE["last_result"] = res
         STATE["job"]["done"] = True
+        STATE["job"]["finished_at"] = time.time()      # UIUX-03: مدت برای صفحه‌ی نتیجه
     ts.STOP.clear()
 
 
@@ -2852,7 +2869,8 @@ def api_start():
         fut = asyncio.run_coroutine_threadsafe(
             ts.scrape(app, STATE["client"], it, app.speed), ts._bg_loop())
         ts.PROG.update(phase="scrape", chat=it["name"], chat_id=it["id"], total=None,
-                       done=0, pct=0, files=0, skipped=0, errors=0, zip=None)
+                       done=0, pct=0, files=0, skipped=0, errors=0, zip=None,
+                       milestone=0, dl_name=None, dl_got=None)   # UIUX-02
         ts.notify(wt("job_started", name=ts.short(it["name"], 40)))
         STATE["job"] = {"chat": it["name"], "chat_id": it["id"],
                         "started_at": time.time(), "result": None, "error": None, "done": False}
@@ -2903,6 +2921,7 @@ def api_progress():
     with LOCK:
         return jsonify({
             "phase": STATE["phase"],
+            "now": time.time(),          # UIUX-03: ساعتِ سرور — زمان سپری‌شده بدون اختلاف ساعت گوشی
             "prog": dict(ts.PROG),
             "msgs": msgs,
             "last_seq": last,
@@ -3112,8 +3131,23 @@ input:focus,select:focus,button:focus-visible,[tabindex]:focus-visible{
   background:linear-gradient(90deg,var(--line) 25%,var(--surface) 50%,var(--line) 75%);
   background-size:200% 100%;animation:shimmer 1.2s infinite}
 @keyframes shimmer{to{background-position:-200% 0}}
-.progress{height:14px;border-radius:999px;background:var(--line);overflow:hidden;margin:12px 0}
+.progress{height:16px;border-radius:999px;background:var(--line);overflow:hidden;margin:12px 0}
 .progress>div{height:100%;background:var(--primary);transition:width .4s}
+/* UIUX-02: صفحه‌ی پیشرفت — چیپ فاز، درصد درشت، گزارش زنده */
+.row h2{margin:0}
+.chip{flex:none;font-size:12px;font-weight:700;border-radius:999px;padding:4px 10px;
+  border:1px solid var(--line);color:var(--muted);background:var(--bg);white-space:nowrap}
+.chip.run{color:var(--primary);border-color:var(--primary)}
+.chip.zip{color:var(--warn);border-color:var(--warn)}
+.chip.ok{color:var(--ok);border-color:var(--ok)}
+.chip.err{color:var(--danger);border-color:var(--danger)}
+#pctBig{font-size:26px;font-weight:800;margin:0}
+#etaTxt{margin:0}
+.log{max-height:180px;overflow-y:auto;background:var(--bg);border:1px solid var(--line);
+  border-radius:10px;padding:8px 10px;font-size:12px;line-height:1.7;margin-top:8px;
+  font-variant-numeric:tabular-nums}
+.log div{white-space:pre-wrap;word-break:break-word;color:var(--muted)}
+.log div.imp{color:var(--text);font-weight:600}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
 .stat{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 .stat .muted{margin:0;font-size:12px}
@@ -3260,18 +3294,31 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
 
 <section data-view="progress" hidden>
   <div class="card">
-    <h2 id="progChat"></h2>
-    <div class="progress" role="progressbar" id="barWrap" aria-label="پیشرفت" aria-valuemin="0" aria-valuemax="100">
+    <div class="row">
+      <h2 id="progChat"></h2>
+      <span class="chip" id="phaseChip">…</span>
+    </div>
+    <div class="progress" role="progressbar" id="barWrap" aria-label="پیشرفت" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
       <div id="bar"></div>
     </div>
-    <p class="num" id="progTxt" dir="ltr"></p>
+    <div class="row">
+      <b id="pctBig" class="num">۰٪</b>
+      <span class="num muted" id="etaTxt"></span>
+    </div>
+    <p class="muted num" id="curFile" dir="ltr" hidden></p>
     <div class="grid">
       <div class="stat"><p class="muted">پیام</p><b id="stDone" class="num">۰</b></div>
       <div class="stat"><p class="muted">از کل</p><b id="stTotal" class="num">؟</b></div>
       <div class="stat"><p class="muted">فایل</p><b id="stFiles" class="num">۰</b></div>
+      <div class="stat"><p class="muted">ردشده</p><b id="stSkip" class="num">۰</b></div>
       <div class="stat"><p class="muted">خطا</p><b id="stErr" class="num">۰</b></div>
+      <div class="stat"><p class="muted">زمان</p><b id="stTime" class="num">۰:۰۰</b></div>
     </div>
-    <p class="muted" id="phaseNote"></p>
+    <p class="muted" id="phaseNote" aria-live="polite"></p>
+    <details id="logWrap" hidden>
+      <summary>گزارش زنده</summary>
+      <div id="log" class="log"></div>
+    </details>
   </div>
   <button class="btn danger full sticky" id="stopBtn">توقف اسکرپ</button>
 </section>
@@ -3587,14 +3634,79 @@ function openChat(id) {
 let pollTimer = null;
 let lastSeq = 0;                          // فیکس WB-05: فقط پیام‌های جدیدِ هر poll نمایش می‌یابد
 let pollErrs = 0;                         // فیکس WB-12: شمارنده‌ی خطاهای متوالی poll
+let lastLogFam = "";                       // UIUX-02: خانواده‌ی آخرین خط گزارش (dedupe)
+let srvNow = 0, jobStart = 0, lastDone = 0, lastTotal = 0;   // UIUX-03: ساعت سرور/آمار
+let tickTimer = null;                      // UIUX-03: تیک هر ثانیه بین pollها
 function showProgress() {
   show("progress");
   if (pollTimer) clearInterval(pollTimer);
+  $("#log").innerHTML = "";                     // UIUX-02: گزارش هر اسکرپ از نو
+  lastLogFam = "";
+  $("#logWrap").hidden = true;
+  $("#phaseChip").textContent = "…";
+  $("#phaseChip").className = "chip";
+  $("#curFile").hidden = true;
+  $("#stopBtn").disabled = false;
   const stale = $("#pollRetryBtn");             // فیکس WB-12: دکمه‌ی تلاش دوباره‌ی مانده
   if (stale) stale.remove();
   pollErrs = 0;
+  if (tickTimer) clearInterval(tickTimer);
+  tickTimer = setInterval(() => { if (srvNow) { srvNow += 1; tickUpd(); } }, 1000);
   pollTimer = setInterval(poll, 1500);
   poll();
+}
+
+// UIUX-03: مدت به شکل MM:SS یا H:MM:SS با رقم فارسی
+function fmtDur(s) {
+  s = Math.max(0, Math.round(s || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const two = n => (n < 10 ? "0" : "") + n;
+  return fa(h > 0 ? h + ":" + two(m) + ":" + two(sec) : m + ":" + two(sec));
+}
+
+// UIUX-02: گزارش زنده — خطِ هم‌خانواده (فقط عدد فرق دارد) همان خط آخر را به‌روز می‌کند
+function logLine(txt, important) {
+  const box = $("#log");
+  const fam = String(txt).replace(/[0-9۰-۹٠-٩]+/g, "#");
+  if (fam === lastLogFam && box.lastChild) {
+    box.lastChild.textContent = txt;
+    if (important) box.lastChild.classList.add("imp");
+  } else {
+    const el = document.createElement("div");
+    if (important) el.className = "imp";
+    el.textContent = txt;
+    box.appendChild(el);
+    lastLogFam = fam;
+  }
+  while (box.children.length > 40) box.removeChild(box.firstChild);
+  $("#logWrap").hidden = false;
+  box.scrollTop = box.scrollHeight;
+}
+
+// UIUX-02: چیپ فاز رنگی
+const PHASE_FA = {count: ["در حال شمردن پیام‌ها", "run"],
+                  scrape: ["در حال دریافت", "run"],
+                  zip: ["در حال ساخت زیپ", "zip"],
+                  stopped: ["متوقف شد", "err"],
+                  error: ["خطا", "err"],
+                  done: ["تمام شد", "ok"]};
+function setPhase(p) {
+  const c = PHASE_FA[p] || ["", ""];
+  $("#phaseChip").textContent = c[0] || "…";
+  $("#phaseChip").className = "chip" + (c[1] ? " " + c[1] : "");
+}
+
+// UIUX-03: زمان سپری‌شده + سرعت + تخمین باقی‌مانده — همه با ساعتِ سرور
+function tickUpd() {
+  if (!jobStart || !srvNow) return;
+  const el = Math.max(0, srvNow - jobStart);
+  $("#stTime").textContent = fmtDur(el);
+  if (lastDone > 0 && el > 3) {
+    let txt = fa(Math.round(lastDone * 60 / el)) + " پیام/دقیقه";
+    if (lastTotal > 0 && lastTotal > lastDone)
+      txt += " — ≈ " + fmtDur((lastTotal - lastDone) * el / lastDone) + " مانده";
+    $("#etaTxt").textContent = txt;
+  }
 }
 
 function poll() {
@@ -3602,26 +3714,51 @@ function poll() {
     pollErrs = 0;                          // فیکس WB-12: پاسخ موفق → شمارنده صفر
     const d = r.data || {};
     const prog = d.prog || {};
-    (d.msgs || []).forEach(m => toast(m.text || m, "warn"));
+    // UIUX-02: پیام‌های موتور → گزارش زنده؛ toast فقط برای رویدادهای مهم
+    (d.msgs || []).forEach(m => {
+      const txt = String(m.text || m);
+      const imp = /محدود|Flood|متوقف|خطا|⛔|🚨|پر شد|کم شد|استراحت|دیسک/.test(txt);
+      logLine(txt, imp);
+      if (imp) toast(txt, "warn");
+    });
     if (typeof d.last_seq === "number") lastSeq = Math.max(lastSeq, d.last_seq);
+    if (typeof d.now === "number" && d.now > srvNow) srvNow = d.now;   // UIUX-03
     const job = d.job;
     if (job) {
       $("#progChat").textContent = job.chat;
+      if (job.started_at) jobStart = job.started_at;
+      lastDone = prog.done || 0;
+      lastTotal = prog.total || 0;
       const pct = Math.max(0, Math.min(100, prog.pct || 0));
       $("#bar").style.width = pct + "%";
       $("#barWrap").setAttribute("aria-valuenow", String(pct));
-      $("#progTxt").textContent = prog.txt || "";
+      $("#pctBig").textContent = fa(pct) + "٪";
+      setPhase(prog.phase || "");
       $("#stDone").textContent = fa(prog.done || 0);
       $("#stTotal").textContent = prog.total ? fa(prog.total) : "؟";
       $("#stFiles").textContent = fa(prog.files || 0);
+      $("#stSkip").textContent = fa(prog.skipped || 0);
       $("#stErr").textContent = fa(prog.errors || 0);
-      $("#phaseNote").textContent = (prog.phase === "zip") ? "در حال ساخت زیپ…" : "";
+      tickUpd();
+      const cf = $("#curFile");                    // UIUX-02: فایل جاری و پیشرفتش
+      if (prog.dl_name) {
+        cf.hidden = false;
+        cf.textContent = prog.dl_name +
+          (prog.dl_size ? " — " + fmtSize(prog.dl_size) +
+           (prog.dl_got ? " (" + fmtSize(prog.dl_got) + ")" : "") : "");
+      } else cf.hidden = true;
+      const lc = $("#log").lastChild;              // UIUX-02: نوت استراحت وقتی خط آخر 😴 است
+      $("#phaseNote").textContent = (prog.phase === "zip") ? "در حال ساخت زیپ…"
+        : (lc && String(lc.textContent || "").indexOf("😴") === 0
+           ? "استراحت برنامه‌ریزی‌شده برای جلوگیری از محدودیت تلگرام — به‌زودی ادامه می‌یابد." : "");
       if (job.done) {
         if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-        showResult(job.result);
+        if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+        showResult(job.result, job);
       }
     } else if (d.result) {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
       showResult(d.result);
     } else if (!$("#progChat").textContent) {
       // فیکس NB-18 (دفاعی): بدون job و نتیجه، صفحه بی‌توضیح خالی نمی‌ماند
@@ -3630,6 +3767,7 @@ function poll() {
     }
     if (d.phase === "need_login" && (!job || job.done)) {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
       showSetup({}, true);
     }
   }).catch(() => {                         // فیکس WB-12: خطای شبکه دیگر بی‌صدا قورت نمی‌رود
@@ -3648,16 +3786,22 @@ function poll() {
   });
 }
 
-function showResult(res) {
+function showResult(res, job) {
   if (!res) { showMain(); return; }
   const titles = { stop: "اسکرپ متوقف شد — فایل‌های دانلودشده می‌مانند.",
                    disk: "فضای دیسک کم شد؛ متوقف شد.",
                    empty: "چت خالی است." };
   $("#resTitle").textContent = res.empty ? titles.empty :
     (res.interrupted ? (titles[res.reason] || "خطا در اجرا.") : "✅ اسکرپ تمام شد");
+  // UIUX-03: مدت اجرا از finished_at سرور + حجم زیپ
+  let secs = null;
+  if (job && job.started_at && job.finished_at)
+    secs = Math.max(0, Math.round(job.finished_at - job.started_at));
   $("#resStats").innerHTML =
     stat("پیام", res.msgs) + stat("فایل", res.files) +
-    stat("ردشده", res.skipped) + stat("خطا", res.errors);
+    stat("ردشده", res.skipped) + stat("خطا", res.errors) +
+    (secs !== null ? stat("مدت", fmtDur(secs)) : "") +
+    (res.zip_size ? stat("حجم زیپ", fmtSize(res.zip_size)) : "");
   $("#resFolder").textContent = res.folder || "";
   const zl = $("#zipLink");
   if (res.zip_name) {
@@ -3787,9 +3931,13 @@ $("#startBtn").addEventListener("click", () => {
 });
 $("#dlgClose").addEventListener("click", () => $("#chatDlg").close());
 
+// UIUX-04: توقف با تأیید — ضربه‌ی ناخواسته روی گوشی نصف اسکرپ را نمی‌کشد
 $("#stopBtn").addEventListener("click", () => {
-  api("/api/stop").then(r => {
-    if (r.data && r.data.ok) { $("#stopBtn").disabled = true; $("#phaseNote").textContent = "در حال توقف…"; }
+  askConfirm("توقف اسکرپ؟ فایل‌های دانلودشده حفظ می‌شوند و دفعه‌ی بعد از همین‌جا ادامه می‌یابد.",
+             "بله، متوقف کن", () => {
+    api("/api/stop").then(r => {
+      if (r.data && r.data.ok) { $("#stopBtn").disabled = true; $("#phaseNote").textContent = "در حال توقف…"; }
+    });
   });
 });
 
@@ -3877,18 +4025,29 @@ $("#setForm").addEventListener("submit", e => {
   });
 });
 
-$("#logoutBtn").addEventListener("click", () => {
-  $("#confirmMsg").textContent = "خروج کامل: سشن محلی و بکاپ Drive هر دو حذف می‌شوند. مطمئنید؟";
+// UIUX-04: دیالوگ تأیید عمومی — هم برای خروج، هم برای توقف اسکرپ
+let confirmAct = null;
+function askConfirm(msg, yesLabel, act) {
+  confirmAct = act;
+  $("#confirmMsg").textContent = msg;
+  $("#confirmYes").textContent = yesLabel || "بله";
   const dlg = $("#confirmDlg");
   if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+}
+$("#logoutBtn").addEventListener("click", () => {
+  askConfirm("خروج کامل: سشن محلی و بکاپ Drive هر دو حذف می‌شوند. مطمئنید؟",
+             "بله، خارج شو", () => {
+    api("/api/logout").then(r => {
+      if (r.data && r.data.msg) toast(r.data.msg, "ok");
+      boot();
+    });
+  });
 });
 $("#confirmNo").addEventListener("click", () => $("#confirmDlg").close());
 $("#confirmYes").addEventListener("click", () => {
   $("#confirmDlg").close();
-  api("/api/logout").then(r => {
-    if (r.data && r.data.msg) toast(r.data.msg, "ok");
-    boot();
-  });
+  const act = confirmAct; confirmAct = null;
+  if (act) act();
 });
 
 $("#themeBtn").addEventListener("click", () => {
@@ -4098,6 +4257,17 @@ def _selftest():
     eq(r["msgs"], 3, "res.msgs")
     eq(_res_payload({})["empty"], False, "res.defaults")
     eq(_res_payload({})["msgs"], 0, "res.zero")
+
+    # UIUX-03: now سرور در api_progress + finished_at در job + zip_size در نتیجه
+    _pj = web.test_client().get("/api/progress").get_json()
+    eq(isinstance(_pj.get("now"), float), True, "prog.now")
+    _saved_job = STATE["job"]
+    STATE["job"] = {"chat": "x", "chat_id": 1, "started_at": time.time() - 9,
+                    "finished_at": time.time() - 1, "done": True, "error": None, "result": None}
+    _jp = _job_payload()
+    eq(_jp["finished_at"] >= _jp["started_at"], True, "job.finished")
+    STATE["job"] = _saved_job
+    eq(_res_payload({"zip": "/nope/x.zip"})["zip_size"], None, "res.zsize")
 
     # فیکس WB-05: بافر seq‌دار — پیام‌ها گم نمی‌شوند و فیلتر since فقط جدیدها را می‌دهد
     saved_msgs = list(_MSGS)
