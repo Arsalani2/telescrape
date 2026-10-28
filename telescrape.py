@@ -3287,6 +3287,32 @@ h2{font-size:17px;margin:0 0 8px}
 .brand p{margin:2px 0 0}
 /* UIUX-3: فاصلهٔ خطوط کارت «حساب» */
 #accountCard .muted{margin:6px 0;line-height:1.8}
+/* UIUX-5: صفحهٔ «اطلاعات حساب تلگرام» — مینیمال، مطابق طرح مرجع (آیکون‌های Lucide) */
+#accountCard{cursor:pointer}                      /* کارتِ خلاصه در نمای اصلی → صفحهٔ جزئیات */
+.pgtitle{display:flex;align-items:center;justify-content:center;gap:6px;margin:18px 0 2px}
+.pgtitle h2{margin:0;font-size:18px}
+.pgtitle .iconbtn{width:34px;height:34px;min-width:34px;min-height:34px;border-radius:10px}
+.pgtitle .iconbtn svg{width:17px;height:17px}
+.accHead{display:flex;align-items:center;gap:12px}
+.accHead>svg{width:38px;height:38px;flex:none;color:var(--primary)}    /* آبیِ اصلی */
+.accMeta{display:flex;flex-direction:column;min-width:0;flex:1}
+.accMeta strong{font-size:16px}
+.accMeta .muted{margin:0}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;
+  font-size:13px;font-weight:600;padding:5px 12px;flex:none}
+.pill.ok{background:rgba(21,128,61,.12);color:var(--ok)}        /* سبز: وضعیت اتصال فعال */
+.pill.off{background:rgba(87,99,128,.14);color:var(--muted)}
+.pill.blue{background:rgba(29,78,216,.10);color:var(--primary)}  /* آبی: Google Drive فعال */
+.infoBox{display:flex;gap:10px;align-items:flex-start;border-radius:12px;
+  background:rgba(29,78,216,.07);border:1px solid rgba(29,78,216,.20);
+  padding:12px 14px;margin:16px 0}
+.infoBox>svg{width:20px;height:20px;flex:none;color:var(--primary);margin-top:2px}
+.infoBox b{display:block;font-size:14px;margin-bottom:2px}
+.infoBox p{margin:0;font-size:13.5px;line-height:1.8;color:var(--muted)}
+html.dark .pill.ok{background:rgba(74,222,128,.14)}
+html.dark .pill.off{background:rgba(150,161,181,.14)}
+html.dark .pill.blue{background:rgba(122,165,248,.13)}
+html.dark .infoBox{background:rgba(122,165,248,.09);border-color:rgba(122,165,248,.24)}
 /* UIUX-3: ردیف زیپ — بدون style درون‌خطی؛ لینک کشسان، دکمهٔ 📤 ثابت */
 .zipRow{display:flex;gap:8px;align-items:center;margin:8px 0}
 .zipRow>a{flex:1;min-width:0;display:inline-flex;flex-wrap:wrap;align-items:center;
@@ -3634,6 +3660,45 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
     <button class="btn full" type="submit" form="setForm">ذخیره‌ی تنظیمات</button>
   </div>
 </section>
+<!-- UIUX-5: صفحهٔ «اطلاعات حساب تلگرام» — فقط دادهٔ واقعی /api/state؛ بازخوانی = آیکون RefreshCw کنار عنوان -->
+<section data-view="account" hidden>
+  <div class="row">
+    <button class="btn ghost" id="accBack">بازگشت</button>
+  </div>
+  <div class="pgtitle">
+    <button class="iconbtn" id="accRefresh" aria-label="بازخوانی" title="بازخوانی">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 21a9 9 0 0 1-9-9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+    </button>
+    <h2>اطلاعات حساب تلگرام</h2>
+  </div>
+  <div class="card">
+    <div class="accHead">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>
+      <div class="accMeta">
+        <strong>حساب تلگرام</strong>
+        <span class="muted" id="acPhone">—</span>
+      </div>
+      <span class="pill off" id="acConn">متصل نیست</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="accHead">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+      <div class="accMeta">
+        <strong>پشتیبان‌گیری</strong>
+        <span class="muted" id="acBackup">—</span>
+      </div>
+      <span class="pill blue" id="acDrive" hidden>Google Drive: فعال</span>
+    </div>
+  </div>
+  <div class="infoBox" id="acTemp">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+    <div>
+      <b>ذخیره‌سازی موقت</b>
+      <p>اطلاعات به‌صورت موقت ذخیره می‌شوند. برای ذخیره‌سازی دائمی، لانچر را با Google Drive اجرا کنید.</p>
+    </div>
+  </div>
+</section>
 </main>
 
 <dialog id="chatDlg" aria-labelledby="dlgName">
@@ -3796,6 +3861,26 @@ function showLogin(phase) {
   show("login");
   if (!secretPwd) (two ? $("#password") : $("#code")).focus();
 }
+
+/* UIUX-5: صفحهٔ «اطلاعات حساب تلگرام» — همهٔ مقادیر از /api/state؛ هیچ دادهٔ ساختگیای نمایش داده نمی‌شود */
+function fillAccount(t) {
+  const ready = t.phase === "ready";
+  $("#acPhone").textContent = t.phone ? "\u2066" + t.phone + "\u2069" : "—";
+  const conn = $("#acConn");
+  conn.textContent = ready ? "متصل" : "متصل نیست";   // سبز فقط وقتی واقعاً متصل است
+  conn.className = "pill " + (ready ? "ok" : "off");
+  $("#acBackup").textContent = t.bk_active
+    ? (t.restored ? "بکاپ سشن روی Drive فعال — این سشن از بکاپ بازیابی شده بود"
+                  : "بکاپ سشن روی Drive فعال")
+    : "بدون پشتیبان‌گیری";
+  $("#acDrive").hidden = !t.drive;    // برچسب «Google Drive: فعال» فقط وقتی Drive واقعاً وصل است
+  $("#acTemp").hidden = !!t.drive;    // کادر «ذخیره‌سازی موقت» فقط وقتی Drive وصل نیست
+}
+function updateAccount() {
+  api("/api/state").then(r => fillAccount(r.data || {}))
+    .catch(() => toast("ارتباط با سرور برقرار نشد", "err"));
+}
+function showAccount() { updateAccount(); show("account"); }
 
 function showMain() {
   api("/api/state").then(r => {
@@ -4293,6 +4378,10 @@ function showSettings() {
 }
 $("#settingsBtn").addEventListener("click", showSettings);
 $("#topSetBtn").addEventListener("click", showSettings);   // UIUX-2: ⚙️ بالای صفحه
+/* UIUX-5: ورود به صفحهٔ «اطلاعات حساب تلگرام» از کارتِ خلاصه؛ کلیک روی دکمه‌های داخل کارت بی‌اثر */
+$("#accountCard").addEventListener("click", e => { if (e.target.closest("button")) return; showAccount(); });
+$("#accRefresh").addEventListener("click", updateAccount);
+$("#accBack").addEventListener("click", () => boot());
 $("#setBack").addEventListener("click", () => boot());   // UIUX-2: ⚙️ از هر فازی باز می‌شود → بازگشت به فاز درست
 $("#s_limit").addEventListener("change", mbToggle);
 $("#s_max").addEventListener("input", mbHintUpdate);
