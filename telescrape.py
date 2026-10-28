@@ -723,17 +723,23 @@ def get_secret(key):
 
 
 def norm_phone(p):
+    """Normalize any user input to international ``+digits`` format.
+    Dynamic and crash-proof: with/without ``+``, ``00`` prefix, local Iranian
+    formats (09…/9…), Persian/Arabic digits and separators (space, dash, parens)
+    all work; anything else non-digit is dropped. Empty/garbage → ``""``."""
     p = str(p or "").translate(_DIGITS)
-    p = re.sub(r"[\s\-()]", "", p)
-    if p.startswith("00"):
-        p = "+" + p[2:]
-    if re.fullmatch(r"09\d{9}", p):          # Iranian local format
-        p = "+98" + p[1:]
-    elif re.fullmatch(r"9\d{9}", p):        # same without the leading zero
-        p = "+98" + p
-    if p and not p.startswith("+"):
-        p = "+" + p
-    return p
+    plus = p.lstrip().startswith("+")
+    digits = re.sub(r"\D", "", p)
+    if not digits:
+        return ""
+    if digits.startswith("00"):               # 00 = international prefix
+        digits = digits[2:]
+        plus = True
+    if re.fullmatch(r"09\d{9}", digits):       # Iranian local format
+        digits = "98" + digits[1:]
+    elif re.fullmatch(r"9\d{9}", digits):     # same without the leading zero
+        digits = "98" + digits
+    return "+" + digits
 
 
 # ───────────────────── session backup: crypto + snapshot (فیکس NB-12) ─────────────────────
@@ -1914,6 +1920,12 @@ def _engine_selftest():
     eq(norm_phone("00989121234567"), "+989121234567", "phone.00")
     eq(norm_phone("۰۹۱۲۱۲۳۴۵۶۷"), "+989121234567", "phone.fa_digits")
     eq(norm_phone("(+44) 20 7946 0958"), "+442079460958", "phone.spaces")
+    # پویایی فیلد شماره: با/بی «+» و ورودی‌های نامرتب نباید خطا بدهند
+    eq(norm_phone("989121234567"), "+989121234567", "phone.noplus")
+    eq(norm_phone("  0912 123-45 67 "), "+989121234567", "phone.messy")
+    eq(norm_phone("+00989121234567"), "+989121234567", "phone.plus00")
+    eq(norm_phone("abc"), "", "phone.garbage")
+    eq(norm_phone(""), "", "phone.empty")
 
     # Throttle: flood multiplier growth, cap, decay
     th = Throttle("normal")
@@ -3221,8 +3233,8 @@ PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f172a">
-<title>اسکرپر تلگرام</title>
+<meta name="theme-color" content="#f4f6fb">
+<title>استخراج‌گر تلگرام</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
 <style>
@@ -3244,11 +3256,22 @@ body{
   min-height:100vh; padding-bottom:calc(env(safe-area-inset-bottom) + 24px);
 }
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:8px;
-  padding:12px 16px;position:sticky;top:0;background:var(--surface);
+  padding:10px 14px;position:sticky;top:0;background:var(--surface);
   border-bottom:1px solid var(--line);z-index:10}
-.topbar h1{font-size:18px;margin:0;display:flex;align-items:center;gap:8px;
-  min-width:0;overflow:hidden}
-.topbar h1 svg{flex:none}
+/* آیکون‌های نوار بالا: دکمه‌های مربعیِ هم‌اندازه — روی گوشی/لپ‌تاپ/تبلت همیشه تراز */
+.iconbtn{appearance:none;-webkit-appearance:none;width:40px;height:40px;min-width:40px;
+  min-height:40px;padding:0;margin:0;border:0;border-radius:12px;cursor:pointer;flex:none;
+  display:inline-flex;align-items:center;justify-content:center;background:transparent;
+  color:var(--text);transition:background .15s}
+.iconbtn:hover{background:var(--bg)}
+.iconbtn:active{transform:scale(.95)}
+.iconbtn:focus-visible{outline:3px solid var(--primary);outline-offset:1px}
+.iconbtn svg{width:20px;height:20px;display:block}
+/* آیکون پویای تم: حالت روشن → ماه، حالت تاریک → خورشید */
+#themeBtn .icon-moon{display:block}
+#themeBtn .icon-sun{display:none}
+html.dark #themeBtn .icon-moon{display:none}
+html.dark #themeBtn .icon-sun{display:block}
 .wrap{max-width:560px;margin:0 auto;padding:0 16px}
 /* UIUX-3: مسیرهای طولانی داخل کارت بشکنند، نه بیرونِ آن */
 #resFolder,#curFile,#stBase{overflow-wrap:anywhere;word-break:normal;max-width:100%}
@@ -3256,6 +3279,12 @@ h2{font-size:17px;margin:0 0 8px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
   padding:16px;box-shadow:var(--shadow);margin:16px 0}
 .muted{color:var(--muted);font-size:14px;margin:4px 0}
+/* کارت ورود: آیکون تلگرام + عنوان + توضیح، وسط‌چین و مینیمال */
+.brand{display:flex;flex-direction:column;align-items:center;text-align:center;
+  gap:2px;margin-bottom:12px}
+.brand svg{width:56px;height:56px;flex:none}
+.brand h2{margin:6px 0 0}
+.brand p{margin:2px 0 0}
 /* UIUX-3: فاصلهٔ خطوط کارت «حساب» */
 #accountCard .muted{margin:6px 0;line-height:1.8}
 /* UIUX-3: ردیف زیپ — بدون style درون‌خطی؛ لینک کشسان، دکمهٔ 📤 ثابت */
@@ -3359,23 +3388,44 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
 .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 </style>
+<script>
+/* تم: پیش‌فرض پیروی از سیستم + ذخیره‌ی انتخاب کاربر (localStorage) —
+   این‌جا در head اجرا می‌شود تا صفحه با تم درست رندر شود و فلاش نزند. */
+(function () {
+  var dark;
+  try {
+    var saved = localStorage.getItem("ts-theme");
+    dark = saved ? saved === "dark"
+                : !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  } catch (e) {
+    dark = !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+  var c = document.documentElement.classList;
+  if (dark) c.add("dark"); else c.remove("dark");
+  var m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute("content", dark ? "#0b1220" : "#f4f6fb");
+})();
+</script>
 </head>
 <body>
 <header class="topbar">
-  <h1><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9M4 15a5 5 0 0 1 5 5M5 19h.01"/><circle cx="5.5" cy="8.5" r="2.5"/><path d="M12 12l8-8"/><path d="M17 4h3v3"/></svg>اسکرپر تلگرام</h1>
-  <button id="topSetBtn" class="btn ghost" aria-label="تنظیمات">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  <button id="themeBtn" class="iconbtn" aria-label="تغییر روشن/تاریک" title="روشن/تاریک">
+    <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
   </button>
-  <button id="themeBtn" class="btn ghost" aria-label="تغییر روشن/تاریک">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+  <button id="topSetBtn" class="iconbtn" aria-label="تنظیمات" title="تنظیمات">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </button>
 </header>
 <main class="wrap">
 
 <section data-view="setup" hidden>
   <div class="card">
-    <h2>اتصال به حساب تلگرام</h2>
-    <p class="muted" id="secHint"></p>
+    <div class="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#229ED9" d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.5.5 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.005-.02.01-.1-.037-.141-.047-.04-.117-.026-.167-.015-.071.016-1.201.763-3.392 2.24-.32.22-.576.327-.812.322-.456-.01-1.308-.26-1.922-.474-.777-.252-1.393-.386-1.34-.816.028-.225.343-.455.944-.69 2.365-1.03 3.944-1.712 4.737-2.046 2.126-.885 2.566-1.037 2.854-1.042z"/></svg>
+      <h2>استخراج‌گر تلگرام</h2>
+      <p class="muted">برای اتصال، شماره تلفن تلگرام را وارد کنید.</p>
+    </div>
     <form id="setupForm" novalidate>
       <div id="credFields">
         <!-- قابلیت WB-15: هر فیلد جداگانه مخفی می‌شود اگر Secret همان فیلد موجود باشد -->
@@ -3390,13 +3440,16 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
           <p class="err" id="err_api_hash" aria-live="polite"></p>
         </div>
       </div>
+      <!-- راهنما فقط وقتی لازم است ظاهر می‌شود (Secret نبود/قطع‌شدن اتصال)؛
+           حالت عادی هیچ متن اضافه‌ای ندارد -->
+      <p class="muted" id="secHint" hidden aria-live="polite"></p>
       <div id="phoneFields">
-        <label for="phone">شماره تلگرام</label>
-        <input id="phone" type="tel" inputmode="tel" placeholder="+98912..." autocomplete="off" dir="ltr" aria-describedby="err_phone">
+        <label for="phone">شماره تلفن</label>
+        <input id="phone" type="tel" inputmode="tel" placeholder="+989121234567" autocomplete="off" dir="ltr" aria-describedby="err_phone">
         <p class="err" id="err_phone" aria-live="polite"></p>
       </div>
       <details id="encWrap">
-        <summary>رمز بکاپ سشن (اختیاری — اگر Secret با نام TS_ENC_KEY ندارید)</summary>
+        <summary>رمز بکاپ سشن (اختیاری)</summary>
         <label for="enc_pw">رمز بکاپ</label>
         <input id="enc_pw" type="password" autocomplete="off" aria-describedby="err_enc_pw">
         <label for="enc_pw2">تکرار همان رمز</label>
@@ -3404,7 +3457,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
         <p class="err" id="err_enc_pw" aria-live="polite"></p>
       </details>
       <p class="err" id="err_setup" aria-live="polite"></p>
-      <button class="btn full" id="setupBtn" type="submit">شروع ورود</button>
+      <button class="btn full" id="setupBtn" type="submit">ارسال کد تأیید</button>
     </form>
   </div>
 </section>
@@ -3713,12 +3766,16 @@ function boot() {
 
 function showSetup(sec, dead) {
   clearErrs();
-  $("#secHint").textContent =
-    (sec.api_id && sec.api_hash ? "API ID و Hash از Secretها خوانده می‌شوند. "
-     : "API ID و Hash از my.telegram.org لازم است. ") +
-    (sec.phone ? "شماره از Secret خوانده می‌شود." : "شماره را با کد کشور وارد کنید.") +
-    (dead ? " اتصال قبلی قطع شده بود؛ دوباره وارد شوید." : "") +
-    (SEC_HINT && !(sec.api_id && sec.api_hash) ? " " + SEC_HINT : "");   // فیکس NB-21
+  /* راهنما فقط در حالت‌های واقعاً لازم: نبودِ API creds یا قطع‌شدن اتصال قبلی.
+     حالت عادی (Secretها کامل) صفحه تمیز و مطابق دیزاین می‌ماند. */
+  const needCreds = !(sec.api_id && sec.api_hash);
+  const bits = [];
+  if (needCreds) bits.push("API ID و API Hash را از my.telegram.org دریافت کنید.");
+  if (SEC_HINT && needCreds) bits.push(SEC_HINT);   // فیکس NB-21: دلیل نرسیدن سکرت
+  if (dead) bits.push("اتصال قبلی قطع شده بود؛ دوباره وارد شوید.");
+  const h = $("#secHint");
+  h.hidden = !bits.length;
+  h.textContent = bits.join(" ");
   $("#apiIdFields").hidden = !!sec.api_id;    // قابلیت WB-15: Secret هست → فیلد نیاید
   $("#apiHashFields").hidden = !!sec.api_hash;
   $("#phoneFields").hidden = !!sec.phone;
@@ -4280,15 +4337,27 @@ $("#confirmYes").addEventListener("click", () => {
   if (act) act();
 });
 
+function applyTheme(dark) {
+  document.documentElement.classList.toggle("dark", dark);
+  const m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute("content", dark ? "#0b1220" : "#f4f6fb");
+}
 $("#themeBtn").addEventListener("click", () => {
-  const dark = document.documentElement.classList.toggle("dark");
+  const dark = !document.documentElement.classList.contains("dark");
+  applyTheme(dark);
   try { localStorage.setItem("ts-theme", dark ? "dark" : "light"); } catch (e) {}
 });
-try { if (localStorage.getItem("ts-theme") === "dark") document.documentElement.classList.add("dark"); }
-catch (e) {}
-if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches &&
-    (function(){ try { return !localStorage.getItem("ts-theme"); } catch(e){ return false; } })()) {
-  document.documentElement.classList.add("dark");
+/* پیش‌فرض پیروی از سیستم: اگر کاربر انتخاب صریحی نکرده باشد،
+   تغییر تم سیستم بلافاصله اعمال می‌شود (مقدار اولیه در <head> ست شده). */
+if (window.matchMedia) {
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  const onSys = e => {
+    let saved = null;
+    try { saved = localStorage.getItem("ts-theme"); } catch (err) {}
+    if (!saved) applyTheme(e.matches);
+  };
+  if (mq.addEventListener) mq.addEventListener("change", onSys);
+  else if (mq.addListener) mq.addListener(onSys);
 }
 
 boot();
