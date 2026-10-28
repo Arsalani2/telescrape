@@ -9,7 +9,7 @@
 (function(){
   var ST = {hint:"", phase:"setup", token:"preview", who:"", restored:false, bk_active:false,
             phone:"+989121234567", drive:false, base:"", secrets:{api_id:true, api_hash:true, phone:true, pwd:false, enc_key:false}};
-  var SETTINGS = {"settings":true,"speed":"normal","speeds":["gentle","normal","fast"],"error":true,"field":true,"ok":true,"phase":true,"msg":true};
+  var SETTINGS = {settings:{media:true, zip:true, sidecar:false, max_mb:0}, speed:"normal", speeds:["gentle","normal","fast"]};
   function j(o, s){ return Promise.resolve(new Response(JSON.stringify(o), {status: s||200, headers:{"Content-Type":"application/json"}})); }
   window.fetch = function(url){
     var u = String(url);
