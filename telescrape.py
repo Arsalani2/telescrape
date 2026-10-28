@@ -932,13 +932,21 @@ class App:
         local = os.path.abspath("telescrape_data")
         base = local
         if USE_DRIVE and IN_COLAB:
-            try:
-                from google.colab import drive
-                drive.mount("/content/drive")
+            # فیکس NB-24: اگر MyDrive از قبل ماونت است (کرنل با colab_launch(drive=True)
+            # آن را بالا آورده)، mount صدا زده نمی‌شود — در پروسه‌ی فرزندِ وب (بدون کرنل)
+            # drive.mount شکست می‌خورد و خروجی بی‌صدا روی دیسک موقت می‌ماند در حالی که
+            # UI می‌گوید Drive وصل است. mount فقط وقتی لازم است که MyDrive هنوز نیست.
+            if os.path.isdir("/content/drive/MyDrive"):
                 base = "/content/drive/MyDrive/TeleScrape"
                 say(t("drive_ok"))
-            except Exception as e:
-                say(t("drive_fail", e=short_err(e)))
+            else:
+                try:
+                    from google.colab import drive
+                    drive.mount("/content/drive")
+                    base = "/content/drive/MyDrive/TeleScrape"
+                    say(t("drive_ok"))
+                except Exception as e:
+                    say(t("drive_fail", e=short_err(e)))
         self.base = os.path.abspath(base)
         self.exports = os.path.join(self.base, "exports")
         self.zips = os.path.join(self.base, "zips")
