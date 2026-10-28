@@ -2108,6 +2108,10 @@ W = {
         "ln_slow": "⛔ سرور تا {s} ثانیه پاسخ نداد؛ آخر web.log:",
         "ln_url": "🔗 این لینک را روی گوشی باز کنید:",
         "ln_nokernel": "⚠️ این تابع باید داخل سلول نوت‌بوک Colab اجرا شود (سکرت‌ها فقط آنجا خوانده می‌شوند).",
+        "ln_gate_on": "🔒 قفل دسترسی عمومی روشن شد (APP_TOKEN).",
+        "ln_no_app_token": "⛔ سکرت APP_TOKEN پیدا نشد — برای لینک عمومی الزامی است. در 🔑 Secrets مقداری الفبایی-عدمی بسازید، «Notebook access» را روشن کنید و لانچر را دوباره اجرا کنید.",
+        "ln_tunnel_url": "🌍 لینک عمومی (روی هر دستگاهی و بدون لاگین گوگل باز می‌شود):",
+        "ln_tunnel_fail": "⛔ تونل cloudflared تا {s} ثانیه لینک نداد؛ لانچر را دوباره اجرا کنید. اگر تکرار شد، روش‌های جایگزین (localtunnel/ngrok) در COLAB.md.",
     },
     "en": {
         "bad_api_id": "Invalid API ID.",
@@ -2152,6 +2156,10 @@ W = {
         "ln_slow": "⛔ The server did not answer within {s}s; tail of web.log:",
         "ln_url": "🔗 Open this link on your phone:",
         "ln_nokernel": "⚠️ Run this inside a Colab notebook cell (Secrets can only be read there).",
+        "ln_gate_on": "🔒 Public access lock enabled (APP_TOKEN).",
+        "ln_no_app_token": "⛔ Secret APP_TOKEN not found — required for a public link. Create an alphanumeric value in 🔑 Secrets, enable \"Notebook access\", and run the launcher again.",
+        "ln_tunnel_url": "🌍 Public link (opens on any device, no Google sign-in):",
+        "ln_tunnel_fail": "⛔ cloudflared gave no URL within {s}s; run the launcher again. If it repeats, use the alternatives (localtunnel/ngrok) in COLAB.md.",
     },
 }
 
@@ -2181,6 +2189,7 @@ STATE = {
     "last_result": None,
     "secrets": {},
     "token": _secrets.token_hex(24),   # قابلیت WEB-06: CSRF تک‌کاربره
+    "access_key": "",                  # موج TUN: رمز لینک عمومی (APP_TOKEN) — خالی یعنی بدون قفل
 }
 
 
@@ -2358,14 +2367,57 @@ def _print_log_tail(path="web.log", n=1500):
         pass
 
 
-def colab_launch(port=8000, boot_wait=30, getter=None, show_url=True):
+_TUNNEL_WAIT = 60     # موج TUN: حداکثر انتظار (ثانیه) برای لینک trycloudflare
+
+
+def _start_cloudflared(port, wait=_TUNNEL_WAIT):
+    """موج TUN: تونل عمومی cloudflared (بدون اکانت) — فقط همان پورت برنامه expose می‌شود.
+    موفق: https://...trycloudflare.com  |  شکست: None. هر اجرا لینک تازه می‌دهد."""
+    exe = "cloudflared"
+    cf_url = ("https://github.com/cloudflare/cloudflared/releases/latest/download/"
+              "cloudflared-linux-amd64")
+    if not (os.path.isfile(exe) and os.path.getsize(exe) > 1_000_000):   # نیمه‌خراب = دوباره بگیر
+        subprocess.run(["wget", "-q", cf_url, "-O", exe], check=False)
+        if not (os.path.isfile(exe) and os.path.getsize(exe) > 1_000_000):
+            return None
+        os.chmod(exe, 0o755)
+    try:
+        subprocess.run(["pkill", "-f", r"[c]loudflared"], capture_output=True)   # تونل قبلی
+    except OSError:
+        pass
+    try:
+        proc = subprocess.Popen([os.path.abspath(exe), "tunnel", "--url", f"http://localhost:{port}",
+                                 "--no-autoupdate"],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    except OSError:
+        return None
+    buf = []
+
+    def _pump():
+        for line in proc.stderr:
+            buf.append(line)
+
+    threading.Thread(target=_pump, daemon=True).start()
+    deadline = time.time() + wait
+    while time.time() < deadline and proc.poll() is None:
+        for line in buf:
+            m = re.search(r"https://[-a-zA-Z0-9]+\.trycloudflare\.com", line)
+            if m:
+                return m.group(0)          # پروسه‌ی تونل زنده می‌ماند و به پورت وصل است
+        time.sleep(0.5)
+    return None
+
+
+def colab_launch(port=8000, boot_wait=30, getter=None, show_url=True, tunnel=False):
     """لانچر Colab — داخل یک سلولِ نوت‌بوک اجرا کنید (COLAB.md، سلول ۲):
         import sys; sys.modules.pop("telescrape", None)
         import telescrape; telescrape.colab_launch()
     سکرت‌ها را در کرنل می‌خواند (وضعیت هر کدام را می‌گوید)، پروسه‌ی قدیمی را می‌کشد، سرور را
     با سکرت‌ها در env (فقط RAM) اجرا می‌کند و از خودِ سرور تایید می‌گیرد که آنها را دیده.
-    True یعنی همه‌ی سکرت‌های خوانده‌شده به سرور رسیده‌اند و سرور بالاست."""
-    import urllib.request
+    True یعنی همه‌ی سکرت‌های خوانده‌شده به سرور رسیده‌اند و سرور بالاست.
+    tunnel=True (موج TUN): به‌جای لینک proxyPort، لینک عمومی cloudflared می‌سازد —
+    نیازمند سکرت APP_TOKEN؛ بدون آن متوقف می‌شود. درخواست بدون key صحیح → 401."""
+    import urllib.request, urllib.parse
     if getter is None:
         try:
             from google.colab import userdata
@@ -2388,6 +2440,18 @@ def colab_launch(port=8000, boot_wait=30, getter=None, show_url=True):
         else:
             print(wt("ln_error", name=name, e=detail or "?"))
 
+    # موج TUN: رمز دسترسی لینک عمومی — فقط از Secrets؛ هرگز در کد/لاگ/ریپو نمی‌آید
+    app_token = ""
+    if tunnel:
+        try:
+            app_token = str(getter("APP_TOKEN") or "").strip()
+        except Exception as e:
+            print(wt("ln_no_app_token") + " (" + ts.short_err(e) + ")")
+            return False
+        if not app_token:
+            print(wt("ln_no_app_token"))
+            return False
+
     # پروسه‌ی قدیمی (بدون سکرتِ تازه) را بکش و تا آزاد شدن پورت صبر کن (NB-20)
     try:
         subprocess.run(["pkill", "-f", r"[t]elescrape\.py"], capture_output=True)
@@ -2403,6 +2467,8 @@ def colab_launch(port=8000, boot_wait=30, getter=None, show_url=True):
 
     env = {**os.environ, "TS_WEB_CHILD": "1", "PYTHONUNBUFFERED": "1"}
     env.update(values)
+    if app_token:
+        env["TS_ACCESS_TOKEN"] = app_token   # موج TUN: قفل لینک عمومی — فقط RAM
     script = os.path.abspath(globals().get("__file__") or "telescrape.py")
     with open("web.log", "w") as logf:
         proc = subprocess.Popen([sys.executable, script, "--port", str(port)],
@@ -2411,9 +2477,12 @@ def colab_launch(port=8000, boot_wait=30, getter=None, show_url=True):
 
     state = None
     deadline = time.time() + boot_wait
+    _probe = f"http://127.0.0.1:{port}/api/state"
+    if app_token:
+        _probe += "?key=" + urllib.parse.quote(app_token, safe="")   # موج TUN: رد شدن از قفل
     while time.time() < deadline and proc.poll() is None:
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=2) as r:
+            with urllib.request.urlopen(_probe, timeout=2) as r:
                 state = json.loads(r.read().decode("utf-8"))
             break
         except Exception:
@@ -2434,7 +2503,15 @@ def colab_launch(port=8000, boot_wait=30, getter=None, show_url=True):
         print(wt("ln_mismatch", names=", ".join(lost)))
     else:
         print(wt("ln_verified", names=", ".join(got)))
-    if show_url:
+    if tunnel:
+        link = _start_cloudflared(port)
+        if not link:
+            print(wt("ln_tunnel_fail", s=_TUNNEL_WAIT))
+            return False
+        print(wt("ln_tunnel_url"))
+        # لینک آمادهٔ کلیک؛ key فقط در خروجی همین سلول است (RAM) و بعد از اولین باز شدن به کوکی تبدیل می‌شود
+        print(link + "/?key=" + urllib.parse.quote(app_token, safe=""))
+    elif show_url:
         try:
             from google.colab import output
             link = output.eval_js(f"google.colab.kernel.proxyPort({port})")
@@ -2500,6 +2577,10 @@ def main():
         print(f"⛔ پورت {args.port} اشغال است — احتمالاً پروسه‌ی قدیمی روی همان پورت سرویس می‌دهد و سکرت‌ها به آن نرسیده‌اند.")
         print("   در یک سلولِ کرنل اجرا کنید: !pkill -f telescrape.py — بعد دوباره سلول لانچر COLAB.md.")
         raise SystemExit(1)
+    # موج TUN: قفل دسترسی لینک عمومی — سکرت APP_TOKEN را لانچر به env رسانده است
+    STATE["access_key"] = (os.environ.get("TS_ACCESS_TOKEN") or "").strip()
+    if STATE["access_key"]:
+        print(wt("ln_gate_on"))
     print(f"TeleScrape Web listening on 0.0.0.0:{args.port}")
     print("برای باز کردن روی گوشی، در یک سلولِ کرنل اجرا کنید (proxyPort به‌جای تابع منسوخ‌شده):")
     print("    from google.colab import output")
@@ -4080,6 +4161,48 @@ def _check_token():
                                    str(STATE["token"]).encode("utf-8"))
 
 
+# ═══════════════ موج TUN: قفل دسترسی لینک عمومی (APP_TOKEN) ═══════════════
+
+PAGE_401 = r"""<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>401 — TeleScrape</title>
+<style>body{font-family:system-ui,-apple-system,sans-serif;margin:0;min-height:100vh;
+display:flex;align-items:center;justify-content:center;background:#0b1220;color:#e8edf7}
+p{text-align:center;padding:0 16px;line-height:1.9}</style></head>
+<body><p>🔒 لینک را با «?key=رمز» باز کنید<br>(رمز = همان مقدار سکرت APP_TOKEN)</p></body></html>"""
+
+
+def _access_gate():
+    """موج TUN: بدون key صحیح (?key= یا کوکی قبلی) → 401. کلید خالی = بدون قفل."""
+    key = str(STATE.get("access_key") or "")
+    if not key:
+        return None
+    sent = str(request.args.get("key", ""))
+    if sent and _secrets.compare_digest(sent.encode("utf-8", "replace")[:128], key.encode("utf-8")):
+        return None
+    cookie = str(request.cookies.get("ts_key", ""))
+    if cookie and _secrets.compare_digest(cookie.encode("utf-8", "replace")[:128], key.encode("utf-8")):
+        return None
+    return PAGE_401, 401
+
+
+@web.after_request
+def _access_remember(response):
+    """موج TUN: اولین ورود با ?key= صحیح → کوکی ts_key (HttpOnly، ۳۰ روز) تا دفعات بعد بدون key باز شود."""
+    key = str(STATE.get("access_key") or "")
+    sent = str(request.args.get("key", ""))
+    if key and sent and _secrets.compare_digest(sent.encode("utf-8", "replace")[:128], key.encode("utf-8")):
+        try:
+            response.set_cookie("ts_key", key, httponly=True, samesite="Lax", max_age=30 * 24 * 3600)
+        except Exception:
+            pass                    # مقدار غیر‌کوکی‌پسند → هر بار با ?key= وارد شود
+    return response
+
+
+web.before_request(_access_gate)
+
+
 @web.errorhandler(404)
 def _not_found(e):
     """مسیر غایب — پاسخ تمیز و دوستانه، نه 400 خام (قابلیت WEB-06)."""
@@ -4299,6 +4422,21 @@ def _selftest():
         eq(_check_token(), True, "token.query")
     with web.test_request_context("/?t=deadbeef"):
         eq(_check_token(), False, "token.query_bad")
+
+    # موج TUN: قفل دسترسی عمومی — 401 بدون key، 200 با ?key= و کوکی
+    _ak = STATE.get("access_key")
+    STATE["access_key"] = "zz-selftest-zz"
+    try:
+        tc = web.test_client()
+        eq(tc.get("/").status_code, 401, "gate.401")
+        rv = tc.get("/?key=zz-selftest-zz")
+        eq(rv.status_code, 200, "gate.key200")
+        eq(any(v.startswith("ts_key=") for v in rv.headers.get_all("Set-Cookie")), True, "gate.cookie")
+        eq(tc.get("/", headers={"Cookie": "ts_key=zz-selftest-zz"}).status_code, 200, "gate.cookie200")
+        eq(tc.get("/?key=wrong").status_code, 401, "gate.wrong")
+        eq(tc.get("/api/state").status_code, 401, "gate.api401")
+    finally:
+        STATE["access_key"] = _ak
 
     # فیکس NB-17: آیدی منفی (کانال/گروه) باید به api_chat مچ شود
     _m = web.url_map.bind("localhost")
