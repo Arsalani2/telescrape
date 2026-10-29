@@ -2750,12 +2750,7 @@ def api_login_start():
             if pw1 != pw2:
                 return jsonify({"error": wt("pwd_mismatch"), "field": "enc_pw"}), 400
             STATE["enc_pw"] = pw1
-        old = STATE["client"]                 # فاز need_login: کلاینت مرده را ببند (WEB-06)
-        if old is not None:
-            try:
-                _bg_call(ts._disconnect(old), 30)
-            except Exception:
-                pass
+        old = STATE["client"]                 # فاز need_login: کلاینت مرده (WEB-06) — قطع در NB-30 بیرون از LOCK
         STATE.update(api_id=api_id, api_hash=api_hash, phone=phone, client=None,
                      restored=False, items=[], resolve_cache={}, who="")
         try:
@@ -2774,6 +2769,15 @@ def api_login_start():
         except Exception as e:
             return jsonify({"error": wt("internal", e=ts.short_err(e))}), 500
         app.lock_session(api_id)
+    # فیکس NB-30: قطعِ کلاینت مرده بیرون از LOCK — _disconnect تا ۳۰ ثانیه شبکه است
+    # و داخل LOCK یعنی فریزِ کامل /api/state و /api/progress (هم‌کلاسِ NB-26).
+    # ترتیب حفظ می‌شود: کلاینت قدیمی پیش از connectِ کلاینتِ تازه (داخل
+    # _connect_and_flow) قطع می‌شود، پس هرگز دو اتصالِ زنده روی یک سشن نمی‌افتد.
+    if old is not None:
+        try:
+            _bg_call(ts._disconnect(old), 30)
+        except Exception:
+            pass
     # فیکس NB-26: _connect_and_flow بیرون از LOCK صدا زده شود (الگوی WB-14 که
     # api_login_code/2fa از قبل رعایت می‌کنند) — این تابع تا ۹۰+۶۰+۹۰ ثانیه شبکه
     # و در مسیرِ authorized تا ۶۰۰ ثانیه load_dialogs صبر می‌کند؛ داخل LOCK یعنی
