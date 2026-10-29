@@ -4114,6 +4114,13 @@ function poll() {
       if (job.done) {
         if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
         if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+        /* فیکس NB-29: خطای job (نتیجه‌ی None) دیگر بی‌صدا قورت نمی‌خورد —
+           کاربر پیام خطا را می‌بیند، نه بازگشتِ خاموش به لیست چت‌ها */
+        if (!job.result && job.error) {
+          toast(job.error, "err");
+          showMain();
+          return;
+        }
         showResult(job.result, job);
       }
     } else if (d.result) {
