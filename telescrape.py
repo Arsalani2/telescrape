@@ -2705,9 +2705,12 @@ def _connect_and_flow():
     try:
         _bg_call(client.send_code_request(STATE["phone"]), 90)
     except ts.FloodWaitError as e:
-        with LOCK:                              # فیکس WB-14: نوشتن phase زیر LOCK
-            STATE["phase"] = "need_code"
-        return jsonify({"wait": int(e.seconds) + 2, "phase": "need_code"})
+        # فیکس NB-27: هنوز هیچ کدی ارسال نشده است — فاز need_code نشود؛ وگرنه
+        # تلاشِ دوباره‌ی بعد از شمارش معکوس، به early-returnِ api_login_start
+        # می‌خورد و فقط فرم کد را نشان می‌دهد؛ کد هرگز ارسال نمی‌شود و کاربر
+        # منتظر کدی می‌ماند که نمی‌آید. فاز setup می‌ماند تا retry دوباره
+        # send_code را صدا بزند.
+        return jsonify({"wait": int(e.seconds) + 2})
     except Exception as e:
         return _net_error(e)
     with LOCK:                                  # فیکس WB-14
@@ -4851,3 +4854,4 @@ def _selftest():
 
 if __name__ == "__main__":
     main()
+
