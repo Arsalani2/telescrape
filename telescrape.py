@@ -525,7 +525,8 @@ def is_disk_full(e):
 async def tg_call(factory, th, timeout=90, tries=6):
     """Await factory() with a timeout; retry network hiccups with backoff; sit out FloodWait."""
     last = None
-    for i in range(tries):
+    attempt, floods = 0, 0        # فیکس NB-28: FloodWait سهمیه‌ی تلاش را نمی‌سوزاند (هم‌الگوی NB-06 در download)
+    while attempt < tries:
         if STOP.is_set():
             raise Stopped()
         try:
@@ -534,13 +535,17 @@ async def tg_call(factory, th, timeout=90, tries=6):
             return r
         except FloodWaitError as e:
             last = e
+            floods += 1            # فیکس NB-28: صبرِ موفق روی محدودیت، تلاشِ واقعی حساب نمی‌شود
+            if floods >= 6:
+                break
             w = th.flood(e.seconds)
             notify(t("flood", s=int(w)))
             await nap(w)
         except RETRY_ERRORS as e:
             last = e
-            if i < tries - 1:
-                await nap(min(BACKOFF_BASE * 2 ** i, 60) + random.random())
+            if attempt < tries - 1:
+                await nap(min(BACKOFF_BASE * 2 ** attempt, 60) + random.random())
+            attempt += 1           # فیکس NB-28: فقط خطای واقعی تلاش مصرف می‌کند
     raise last
 
 
@@ -4858,4 +4863,5 @@ def _selftest():
 
 if __name__ == "__main__":
     main()
+
 
