@@ -2769,7 +2769,11 @@ def api_login_start():
         except Exception as e:
             return jsonify({"error": wt("internal", e=ts.short_err(e))}), 500
         app.lock_session(api_id)
-        return _connect_and_flow()
+    # فیکس NB-26: _connect_and_flow بیرون از LOCK صدا زده شود (الگوی WB-14 که
+    # api_login_code/2fa از قبل رعایت می‌کنند) — این تابع تا ۹۰+۶۰+۹۰ ثانیه شبکه
+    # و در مسیرِ authorized تا ۶۰۰ ثانیه load_dialogs صبر می‌کند؛ داخل LOCK یعنی
+    # فریزِ کامل /api/state و /api/progress و مرده‌شدن کل UI موبایل.
+    return _connect_and_flow()
 
 
 @web.route("/api/login/code", methods=["POST"])
