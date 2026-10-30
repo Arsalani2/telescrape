@@ -2135,6 +2135,9 @@ W = {
         "ln_drive_fail": "⚠️ اتصال Drive ناموفق: {e} — خروجی روی دیسک موقت می‌ماند",
         "mv_bad_dest": "مسیر مقصد نامعتبر است — مسیر مطلق بدهید (در Colab فقط داخل /content، مثل /content/drive/MyDrive/…).",
         "mv_fail": "انتقال زیپ ناموفق بود: {e}",
+        # فیکس NB-31: وضعیت restore بکاپ سشن به UI وب برسد (قبلاً فقط say() → web.log)
+        "bk_no_pw": "⚠️ رمز بکاپ سشن (سکرت TS_ENC_KEY یا فیلد رمز فرم) موجود نیست؛ بکاپ Drive نادیده گرفته شد و لاگین تازه انجام می‌شود.",
+        "bk_restore_fail": "⚠️ بازگردانی بکاپ سشن نشد (رمز غلط یا فایل خراب)؛ لاگین تازه انجام می‌شود. بکاپ حذف نشد.",
     },
     "en": {
         "bad_api_id": "Invalid API ID.",
@@ -2189,6 +2192,9 @@ W = {
         "ln_drive_fail": "⚠️ Drive connection failed: {e} — outputs stay on the temporary disk",
         "mv_bad_dest": "Invalid destination — give an absolute path (in Colab only inside /content, e.g. /content/drive/MyDrive/…).",
         "mv_fail": "Zip move failed: {e}",
+        # fix NB-31: session-backup restore status reaches the web UI (was web.log only)
+        "bk_no_pw": "⚠️ No session-backup password (Secret TS_ENC_KEY or the form field); the Drive backup was skipped and a fresh login will start.",
+        "bk_restore_fail": "⚠️ Session backup could not be restored (wrong password or corrupt file); a fresh login will start. The backup was NOT deleted.",
     },
 }
 
@@ -2212,6 +2218,7 @@ STATE = {
     "enc_pw": None,             # رمز بکاپ از فرم — فقط RAM (WEB-03)
     "restored": False,
     "who": "",
+    "bk_msg": "",               # فیکس NB-31: نتیجه/علت restore بکاپ سشن برای نمایش در UI
     "items": [],                # کش دیالوگ‌ها (entity هرگز بیرون نمی‌رود — WEB-04)
     "resolve_cache": {},        # آیتم‌های resolve‌شده برای شروع اسکرپ
     "job": None,
@@ -2335,6 +2342,7 @@ def api_state():
             "token": STATE["token"],
             "who": STATE["who"],
             "restored": STATE["restored"],
+            "bk_msg": STATE["bk_msg"],   # فیکس NB-31: چرا restore بکاپ انجام/نشد
             "bk_active": _bk_active(),  # فیکس WB-13: وضعیت بکاپ سشن برای کارت «حساب»
             "phone": STATE["phone"] or "",   # UIUX-2: شمارهٔ حساب برای کارت «حساب»
             "drive": bool(ts.USE_DRIVE and os.path.isdir("/content/drive/MyDrive")),  # UIUX-2
@@ -2761,8 +2769,16 @@ def api_login_start():
         if _bk_active() and not ts._session_ok(sess) \
                 and os.path.exists(app.backup_path(api_id)):   # فیکس NB-12: restore قبل از کلاینت
             pw = ts.get_secret("enc_key") or STATE["enc_pw"]
-            if pw and ts.restore_session_backup(app.backup_path(api_id), sess, password=pw):
+            # فیکس NB-31: پیام‌های restore فقط با say() به web.log می‌رفتند و هرگز به UI
+            # وب نمی‌رسیدند؛ نتیجه (شکست/نبودِ رمز) اکنون در STATE ثبت و از /api/state
+            # به فرانت می‌رسد تا کاربر بداند چرا بکاپ بازیابی نشد.
+            if not pw:
+                STATE["bk_msg"] = wt("bk_no_pw")
+            elif ts.restore_session_backup(app.backup_path(api_id), sess, password=pw):
                 STATE["restored"] = True
+                STATE["bk_msg"] = ""
+            else:
+                STATE["bk_msg"] = wt("bk_restore_fail")
         try:
             STATE["client"] = _bg_call(
                 ts.make_client(app.session_path(api_id), api_id, api_hash), 60)
@@ -3238,7 +3254,8 @@ def api_logout():
         pass
     with LOCK:
         STATE.update(client=None, who="", items=[], resolve_cache={}, job=None,
-                     last_result=None, restored=False, phase="setup", enc_pw=None)
+                     last_result=None, restored=False, phase="setup", enc_pw=None,
+                     bk_msg="")            # فیکس NB-31: پیام restore با خروج پاک می‌شود
     _detect_secrets()
     return jsonify({"ok": True, "msg": msg})
 
@@ -3839,6 +3856,8 @@ function boot() {
     const sec = (r.data && r.data.secrets) || {};
     SECRETS = sec;                       // فیکس WB-07: بعد از بوت در دسترس showLogin
     SEC_HINT = (r.data && r.data.hint) || "";
+    const bkMsg = (r.data && r.data.bk_msg) || "";   // فیکس NB-31: علت نشدن restore بکاپ
+    if (bkMsg) toast(bkMsg, "warn");
     if (p === "ready") showMain();
     else if (p === "need_code" || p === "need_2fa") showLogin(p);
     else showSetup(sec, p === "need_login");
@@ -3907,9 +3926,10 @@ function showMain() {
       card.hidden = false;
       $("#mAccName").textContent = "👤 " + (t.who || "—");
       $("#mAccPhone").textContent = t.phone ? "📞 \u2066" + t.phone + "\u2069" : "";
-      $("#mAccSess").textContent = t.restored
+      $("#mAccSess").textContent = (t.restored
         ? "🔐 سشن از بکاپ Drive بازیابی شده"
-        : (t.bk_active ? "🔐 بکاپ سشن روی Drive فعال" : "🔐 بدون بکاپ سشن");
+        : (t.bk_active ? "🔐 بکاپ سشن روی Drive فعال" : "🔐 بدون بکاپ سشن"))
+        + (t.bk_msg ? "\n" + t.bk_msg : "");   // فیکس NB-31
       $("#mAccDrive").textContent = t.drive
         ? "📁 Drive وصل است: \u2066" + (t.base || "") + "\u2069"
         : "📁 Drive وصل نیست — خروجی موقت است؛ لانچر را با \u2066drive=True\u2069 اجرا کنید";
@@ -4874,5 +4894,6 @@ def _selftest():
 
 if __name__ == "__main__":
     main()
+
 
 
