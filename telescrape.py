@@ -3110,6 +3110,9 @@ def api_zip():
     r = _require_ready()
     if r:
         return r
+    # فیکس NB-33: زیپِ نیمه‌ساختهٔ به‌جامانده از کرشِ وسط make_zip (پسوند .tmp/.part) سرو نمی‌شود
+    if str(request.args.get("name") or "").endswith((".tmp", ".part")):
+        return jsonify({"error": wt("zip_not_found")}), 404
     path = _zip_path(STATE["app"].zips, request.args.get("name"))
     if path is None or not os.path.isfile(path):
         return jsonify({"error": wt("zip_not_found")}), 404
@@ -3133,6 +3136,8 @@ def api_zips():
     except Exception:
         names = []
     for n in names:
+        if n.endswith((".tmp", ".part")):    # فیکس NB-33: نیمه‌ساختهٔ کرشِ make_zip لیست نشود
+            continue
         path = _zip_path(STATE["app"].zips, n)
         if path is None or not os.path.isfile(path):
             continue
