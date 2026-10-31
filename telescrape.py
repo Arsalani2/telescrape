@@ -4004,7 +4004,7 @@ function openChat(id) {
     $("#startBtn").dataset.id = d.id;
     const dlg = $("#chatDlg");
     if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
-  });
+  }).catch(() => toast("ارتباط با سرور برقرار نشد", "err"));   // فیکس NB-32
 }
 
 let pollTimer = null;
@@ -4249,7 +4249,7 @@ function moveZip(name, dest) {
     } else {
       toast((r.data && r.data.error) || "انتقال ناموفق بود", "err");
     }
-  });
+  }).catch(() => toast("ارتباط با سرور برقرار نشد", "err"));   // فیکس NB-32
 }
 
 $("#setupForm").addEventListener("submit", e => {
@@ -4327,7 +4327,7 @@ $("#resolveForm").addEventListener("submit", e => {
   api("/api/resolve", { text: norm(txt) }).then(r => {
     if (r.status === 200 && r.data.item) { openChat(r.data.item.id); $("#resolveInput").value = ""; }
     else setErr("resolve", (r.data && r.data.error) || "پیدا نشد");
-  });
+  }).catch(() => toast("ارتباط با سرور برقرار نشد", "err"));   // فیکس NB-32
 });
 
 $("#startBtn").addEventListener("click", () => {
@@ -4339,7 +4339,7 @@ $("#startBtn").addEventListener("click", () => {
     busy(btn, false);
     if (r.status === 200 && r.data.ok) { $("#chatDlg").close(); showProgress(); return; }
     toast((r.data && r.data.error) || "شروع نشد", "err");
-  });
+  }).catch(() => { busy(btn, false); toast("ارتباط با سرور برقرار نشد", "err"); });   // فیکس NB-32
 });
 $("#dlgClose").addEventListener("click", () => $("#chatDlg").close());
 
@@ -4349,7 +4349,7 @@ $("#stopBtn").addEventListener("click", () => {
              "بله، متوقف کن", () => {
     api("/api/stop").then(r => {
       if (r.data && r.data.ok) { $("#stopBtn").disabled = true; $("#phaseNote").textContent = "در حال توقف…"; }
-    });
+    }).catch(() => toast("ارتباط با سرور برقرار نشد", "err"));   // فیکس NB-32
   });
 });
 
@@ -4445,7 +4445,7 @@ $("#setForm").addEventListener("submit", e => {
     if (r.status === 200) { toast("تنظیمات ذخیره شد", "ok"); showMain(); }
     else if (r.data && r.data.field === "max_mb") setErr("max", r.data.error);
     else toast((r.data && r.data.error) || "ذخیره نشد", "err");
-  });
+  }).catch(() => toast("ارتباط با سرور برقرار نشد", "err"));   // فیکس NB-32
 });
 
 // UIUX-04: دیالوگ تأیید عمومی — هم برای خروج، هم برای توقف اسکرپ
@@ -4463,7 +4463,7 @@ $("#logoutBtn").addEventListener("click", () => {
     api("/api/logout").then(r => {
       if (r.data && r.data.msg) toast(r.data.msg, "ok");
       boot();
-    });
+    }).catch(() => toast("ارتباط با سرور برقرار نشد", "err"));   // فیکس NB-32
   });
 });
 $("#confirmNo").addEventListener("click", () => $("#confirmDlg").close());
